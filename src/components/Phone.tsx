@@ -1,6 +1,18 @@
+import { PHONE_FLUSH_MS, PHONE_PREVIEW_MS } from "../core/timing";
 import { sourceFor } from "../core/advanced-registry";
 import { useEffect, useRef, useState } from "react";
-import { Check, Smartphone, RotateCw, RefreshCw } from "lucide-react";
+import {
+  Activity,
+  Check,
+  Smartphone,
+  Crosshair,
+  RefreshCw,
+  Monitor,
+  RectangleHorizontal,
+  Radio,
+  ShieldCheck,
+  Play,
+} from "lucide-react";
 import { Link, type LinkStatus, type Wire } from "../platform/link";
 import { SourceHub as Sensors } from "../platform/source-hub";
 import { ReplayBuffer } from "../core/recording";
@@ -79,7 +91,10 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           set((v) => ({ ...v, phase: "finished" }));
         }
       }
-      if (preview.length && performance.now() - lastPreview > 100) {
+      if (
+        preview.length &&
+        performance.now() - lastPreview > PHONE_PREVIEW_MS
+      ) {
         link.send({
           type: "preview",
           samples:
@@ -262,7 +277,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
               ? "noSensor"
               : v.message,
       }));
-    }, 120);
+    }, PHONE_FLUSH_MS);
     void link.phone(code);
     return () => {
       clearInterval(timer);
@@ -318,7 +333,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
     <main className="phone-shell">
       <header className="phone-header">
         <div>
-          <h1>{tr("brand", lang)}</h1>
+          <h1 className="brand-wordmark">Phylab</h1>
           <p>{tr("phoneSubtitle", lang)}</p>
         </div>
         <Preferences {...prefs} />
@@ -332,8 +347,8 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           )}
         </div>
         <div>
-          <h2>{tr(s.link === "connected" ? "ready" : "unpaired", lang)}</h2>
-          <p>{tr(s.link === "connected" ? "connected" : s.link, lang)}</p>
+          <h2>{tr(s.link === "connected" ? "connected" : "unpaired", lang)}</h2>
+          {s.link !== "connected" ? <p>{tr(s.link, lang)}</p> : null}
           <p className="current-experiment">
             {tr("current", lang)}: <strong>{tx(experiment.name, lang)}</strong>
           </p>
@@ -347,16 +362,38 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           ["phoneStart", "phoneStartHelp"],
         ].map(([title, body], i) => (
           <div className="phone-step" key={title}>
-            <span>{i + 1}</span>
+            <span>0{i + 1}</span>
             <div>
-              <h3>{tr(title as "phoneEnable", lang)}</h3>
+              <h3>
+                {i === 0 ? (
+                  <Smartphone size={18} />
+                ) : i === 1 ? (
+                  <RectangleHorizontal size={18} />
+                ) : (
+                  <Monitor size={18} />
+                )}
+                {tr(title as "phoneEnable", lang)}
+              </h3>
               <p>
                 {body === "position"
-                  ? tx(experiment.position, lang)
-                  : tr(
-                      body === "safariHelp" ? help : (body as "safariHelp"),
-                      lang,
-                    )}
+                  ? source === "motion"
+                    ? lang === "zh"
+                      ? "固定手機，保持靜止。姿態確定後，按下方按鈕設為相對 0°。"
+                      : "Secure the phone and hold it still. Confirm your reference pose, then set relative zero below."
+                    : source === "camera"
+                      ? lang === "zh"
+                        ? "固定手機與照明，將目標放進中央取樣框。"
+                        : "Fix the phone and lighting. Position the target inside the centre sampling region."
+                      : tx(experiment.position, lang)
+                  : body === "safariHelp"
+                    ? source === "motion"
+                      ? lang === "zh"
+                        ? "點擊下方按鈕，允許動作與方向感測。"
+                        : "Tap the button below and allow motion and orientation access."
+                      : lang === "zh"
+                        ? "點擊下方按鈕，允許本實驗所需的感測權限。"
+                        : "Tap the button below and allow the sensors required for this experiment."
+                    : tr(body as "safariHelp", lang)}
               </p>
             </div>
           </div>
@@ -367,12 +404,12 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
         disabled={s.requesting || s.enabled || active}
         onClick={() => void enable()}
       >
+        <Radio size={19} />
         {tr(
           s.requesting ? "requesting" : s.enabled ? "enabled" : "enable",
           lang,
         )}
       </button>
-      <p className="phone-note">{tr(help, lang)}</p>
       {s.enabled && engine.current?.sensors.video ? (
         <div
           className="camera-preview"
@@ -399,7 +436,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
               engine.current?.link.send({ type: "calibrate-request" })
             }
           >
-            <RotateCw size={19} />
+            <Crosshair size={19} />
             {tr("zero", lang)}
           </button>
           <p className="phone-note">
@@ -414,18 +451,36 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       ) : null}
       <dl className="phone-status">
         <div>
-          <dt>{tr("permission", lang)}</dt>
+          <dt>
+            <ShieldCheck size={17} />
+            {tr("permission", lang)}
+          </dt>
           <dd>{tr(s.enabled ? "enabled" : "notEnabled", lang)}</dd>
         </div>
         <div>
-          <dt>{tr("rate", lang)}</dt>
+          <dt>
+            <Activity size={17} />
+            {tr("rate", lang)}
+          </dt>
           <dd>{s.rate > 0 ? s.rate.toFixed(1) : "—"} Hz</dd>
         </div>
         <div>
-          <dt>{tr("phoneState", lang)}</dt>
+          <dt>
+            <Play size={17} />
+            {tr("phoneState", lang)}
+          </dt>
           <dd>{qualityText(s.phase, lang)}</dd>
         </div>
       </dl>
+      <details className="sensor-details">
+        <summary>
+          {lang === "zh"
+            ? "實驗擺放與感測說明"
+            : "Positioning & sensor details"}
+        </summary>
+        <p>{tx(experiment.position, lang)}</p>
+        <p>{tr(help, lang)}</p>
+      </details>
       <section className="phone-footer">
         <p>{tr("keepOpen", lang)}</p>
         <button

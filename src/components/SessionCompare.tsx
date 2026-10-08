@@ -101,8 +101,8 @@ export function SessionCompare({
           <>
             <p>
               {zh ? "最小平方法" : "Least squares"}: slope=
-              {fit.slope.toFixed(4)} · intercept={fit.intercept.toFixed(4)} ·
-              R²={fit.r2.toFixed(4)}
+              {fit.slope.toFixed(4)} {scan === "length" ? "s²/m" : "s²/kg"} ·
+              intercept={fit.intercept.toFixed(4)} s² · R²={fit.r2.toFixed(4)}
               {scan === "length" && fit.slope > 0
                 ? ` · g=${((4 * Math.PI ** 2) / fit.slope).toFixed(3)} m/s²`
                 : scan === "mass" && fit.slope > 0

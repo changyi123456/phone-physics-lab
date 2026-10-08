@@ -1,16 +1,16 @@
+import { MeasurementInfo } from "./MeasurementInfo";
 import type { Trial } from "../core/session";
 import { MemoAdvancedData as AdvancedData } from "./AdvancedData";
 import { MemoSessionCompare as SessionCompare } from "./SessionCompare";
 import { TeacherConfig } from "./TeacherConfig";
 import { sourceFor, limitFor } from "../core/advanced-registry";
+import { categories, categoryFor } from "../core/catalog";
+import { ExperimentIcon } from "./ExperimentIcon";
 import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import {
-  Activity,
-  RotateCw,
-  Triangle,
-  Cable,
-  Waves,
-  Orbit,
+  Crosshair,
+  Home,
+  Search,
   Monitor,
   Play,
   Download,
@@ -38,7 +38,6 @@ import { Preferences, type PreferencesProps } from "./Preferences";
 import { Instructions } from "./Instructions";
 import { Plot } from "./Plot";
 import { angleSeries, centripetalSeries, vectorSeries } from "./charts";
-const icons = [Activity, RotateCw, Triangle, Cable, Waves, Orbit];
 const fmt = (n: number | null | undefined, digits = 3) =>
   n === null || n === undefined || !Number.isFinite(n)
     ? "—"
@@ -49,12 +48,21 @@ const time = (n: number) =>
     .padStart(2, "0")}:${Math.floor(n % 60)
     .toString()
     .padStart(2, "0")}`;
-export function Desktop(props: PreferencesProps) {
+interface DesktopProps extends PreferencesProps {
+  initialExperiment: ExperimentId;
+  initialDemo: boolean;
+  onHome: () => void;
+  onSelection: (id: ExperimentId, demo: boolean) => void;
+  registerExitGuard: (guard: (() => boolean) | null) => void;
+}
+export function Desktop(props: DesktopProps) {
   const [lab, setLab] = useState<Lab | null>(null);
   useEffect(() => {
     const instance = new Lab();
+    instance.select(props.initialExperiment);
+    if (props.initialDemo) instance.demo();
+    else void instance.pair();
     setLab(instance);
-    void instance.pair();
     return () => instance.dispose();
   }, []);
   return lab ? (
@@ -63,7 +71,15 @@ export function Desktop(props: PreferencesProps) {
     <div className="boot">{tr("brand", props.lang)}</div>
   );
 }
-function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
+function Workspace({
+  lab,
+  onHome,
+  onSelection,
+  registerExitGuard,
+  initialExperiment: _initialExperiment,
+  initialDemo: _initialDemo,
+  ...prefs
+}: DesktopProps & { lab: Lab }) {
   const { lang, theme } = prefs,
     s = useSyncExternalStore(lab.subscribe, lab.getSnapshot);
   const experiment = getExperiment(s.experiment);
@@ -77,6 +93,7 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
     [busy, setBusy] = useState(false),
     [file, setFile] = useState<{ url: string; name: string } | null>(null),
     [exportMessage, setExportMessage] = useState("");
+  const [navigationNotice, setNavigationNotice] = useState("");
   const fileRef = useRef(file);
   fileRef.current = file;
   const active = isActive(s.phase),
@@ -121,6 +138,23 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
   };
   const allowClear = () =>
     !lab.recorder?.count || lab.exported || confirm(tr("leave", lang));
+  useEffect(() => {
+    registerExitGuard(() => {
+      if (active || busy) {
+        setNavigationNotice(
+          lang === "zh"
+            ? "請先結束量測，再返回入口。"
+            : "Finish the measurement before returning home.",
+        );
+        return false;
+      }
+      return !lab.recorder?.count || lab.exported || confirm(tr("leave", lang));
+    });
+    return () => registerExitGuard(null);
+  }, [lab, active, busy, lang, registerExitGuard]);
+  useEffect(() => {
+    onSelection(s.experiment, s.mode === "demo");
+  }, [s.experiment, s.mode]);
   const select = (id: ExperimentId) => {
     if (active || busy || !allowClear()) return;
     clearFile();
@@ -189,43 +223,54 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
   return (
     <div className="desktop-shell">
       <aside className="sidebar">
-        <a className="brand" href={location.pathname}>
-          {tr("brand", lang)}
-        </a>
+        <span className="brand brand-wordmark">Phylab</span>
         <p>{tr("subtitle", lang)}</p>
-        <input
-          className="experiment-search"
-          aria-label={lang === "zh" ? "搜尋實驗" : "Search experiments"}
-          placeholder={lang === "zh" ? "搜尋實驗…" : "Search experiments…"}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <button
+          className="sidebar-home"
+          onClick={onHome}
+          disabled={active || busy}
+        >
+          <Home size={19} />
+          {lang === "zh" ? "返回入口" : "Back to home"}
+        </button>
+        <label className="sidebar-search">
+          <Search size={17} />
+          <input
+            className="experiment-search"
+            aria-label={lang === "zh" ? "搜尋實驗" : "Search experiments"}
+            placeholder={lang === "zh" ? "搜尋實驗…" : "Search experiments…"}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
         <nav aria-label={lang === "zh" ? "實驗選單" : "Experiments"}>
-          {experiments
-            .filter((e) =>
-              e.name.some((name) =>
-                name.toLowerCase().includes(search.toLowerCase()),
-              ),
-            )
-            .map((e) => {
-              const Icon =
-                icons[experiments.indexOf(e)] ??
-                (e.source === "audio"
-                  ? Waves
-                  : e.source === "camera"
-                    ? Monitor
-                    : Activity);
-              return (
-                <button
-                  key={e.id}
-                  className={s.experiment === e.id ? "selected" : ""}
-                  onClick={() => select(e.id)}
-                  disabled={active || busy}
-                >
-                  <Icon size={23} />
-                  <span>{tx(e.name, lang)}</span>
-                </button>
+          {categories
+            .filter((c) => c.id !== "all")
+            .map((category) => {
+              const matches = experiments.filter(
+                (e) =>
+                  categoryFor(e.id) === category.id &&
+                  e.name.some((name) =>
+                    name.toLowerCase().includes(search.toLowerCase()),
+                  ),
               );
+              return matches.length ? (
+                <div className="sidebar-group" key={category.id}>
+                  <h2>{tx(category.name, lang)}</h2>
+                  {matches.map((e) => (
+                    <button
+                      key={e.id}
+                      className={s.experiment === e.id ? "selected" : ""}
+                      onClick={() => select(e.id)}
+                      disabled={active || busy}
+                      aria-current={s.experiment === e.id ? "page" : undefined}
+                    >
+                      <ExperimentIcon id={e.id} />
+                      <span>{tx(e.name, lang)}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null;
             })}
         </nav>
         <div className="local-note">
@@ -269,9 +314,18 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
             </button>
           </div>
         </header>
+        {navigationNotice ? (
+          <p className="notice" role="status">
+            {navigationNotice}
+          </p>
+        ) : null}
         <div className="workspace-columns">
           <div className="data-column">
-            <Instructions experiment={experiment} lang={lang} />
+            <Instructions
+              experiment={experiment}
+              lang={lang}
+              demo={s.mode === "demo"}
+            />
             <section className="data-panel panel">
               <div className="tabs" role="tablist">
                 <button
@@ -364,22 +418,6 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                             />
                           </label>
                         ) : null}
-                        {experiment.parameters?.map((p) => (
-                          <label className="parameter" key={p.key}>
-                            {tx(p.name, lang)} ({p.unit})
-                            <input
-                              type="number"
-                              min={p.min}
-                              max={p.max}
-                              step={p.step}
-                              value={s.params[p.key] ?? p.value}
-                              disabled={active}
-                              onChange={(e) =>
-                                lab.parameter(p.key, Number(e.target.value))
-                              }
-                            />
-                          </label>
-                        ))}
                         {s.experiment === "pendulum" ? (
                           <Metric
                             label={tr("gravity", lang)}
@@ -463,7 +501,10 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                           x="ω (rad/s)"
                           y="a (m/s²)"
                           theme={theme}
-                          empty={tr("empty", lang)}
+                          empty={tr(
+                            s.mode === "demo" ? "demoEmpty" : "empty",
+                            lang,
+                          )}
                           scatter
                         />
                         <Plot
@@ -476,7 +517,10 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                           x="ω² (rad²/s²)"
                           y="a (m/s²)"
                           theme={theme}
-                          empty={tr("empty", lang)}
+                          empty={tr(
+                            s.mode === "demo" ? "demoEmpty" : "empty",
+                            lang,
+                          )}
                           scatter
                           small
                         />
@@ -494,7 +538,10 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                           x={tr("time", lang)}
                           y="a (m/s²)"
                           theme={theme}
-                          empty={tr("empty", lang)}
+                          empty={tr(
+                            s.mode === "demo" ? "demoEmpty" : "empty",
+                            lang,
+                          )}
                         />
                         <Plot
                           title={tr("gyroMagnitude", lang)}
@@ -507,7 +554,10 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                           x={tr("time", lang)}
                           y="ω (rad/s)"
                           theme={theme}
-                          empty={tr("empty", lang)}
+                          empty={tr(
+                            s.mode === "demo" ? "demoEmpty" : "empty",
+                            lang,
+                          )}
                           small
                         />
                       </>
@@ -520,7 +570,10 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                         x={tr("time", lang)}
                         y="θ (°)"
                         theme={theme}
-                        empty={tr("empty", lang)}
+                        empty={tr(
+                          s.mode === "demo" ? "demoEmpty" : "empty",
+                          lang,
+                        )}
                       />
                       <div className="analysis-note">
                         <h3>
@@ -540,7 +593,10 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                         x={tr("time", lang)}
                         y={chartUnit}
                         theme={theme}
-                        empty={tr("empty", lang)}
+                        empty={tr(
+                          s.mode === "demo" ? "demoEmpty" : "empty",
+                          lang,
+                        )}
                       />
                       <Plot
                         title={tr(
@@ -553,7 +609,10 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                         x={tr("time", lang)}
                         y={chartUnit}
                         theme={theme}
-                        empty={tr("empty", lang)}
+                        empty={tr(
+                          s.mode === "demo" ? "demoEmpty" : "empty",
+                          lang,
+                        )}
                         small
                       />
                       {tab === "analysis" ? (
@@ -597,6 +656,22 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
               <div>
                 <p className="formula">{experiment.formula}</p>
                 <p>{tx(experiment.physics, lang)}</p>
+                {experiment.parameters?.map((p) => (
+                  <label className="parameter" key={p.key}>
+                    {tx(p.name, lang)} ({p.unit})
+                    <input
+                      type="number"
+                      min={p.min}
+                      max={p.max}
+                      step={p.step}
+                      value={s.params[p.key] ?? p.value}
+                      disabled={active || s.phase === "finished"}
+                      onChange={(e) =>
+                        lab.parameter(p.key, Number(e.target.value))
+                      }
+                    />
+                  </label>
+                ))}
                 {s.experiment === "pendulum" ? (
                   <label className="parameter">
                     {tr("length", lang)}
@@ -615,6 +690,15 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                 ) : null}
               </div>
             </details>
+            <MeasurementInfo
+              lang={lang}
+              id={s.experiment}
+              mode={s.mode}
+              phase={s.phase}
+              timing={s.timing}
+              transport={s.transport}
+              customField={s.params.customField ?? 0}
+            />
             <SessionCompare
               current={s.phase === "finished" ? lab.recorder?.run : undefined}
               lang={lang}
@@ -643,56 +727,64 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
               <i className={s.link === "connected" ? "online" : ""} />
               <div>
                 <strong>{tr(statusKey as Key, lang)}</strong>
-                <p>
-                  {s.mode === "demo"
-                    ? tr("demoMode", lang)
-                    : tr("scanHelp", lang)}
-                </p>
+                {s.mode === "phone" ? <p>{tr("scanHelp", lang)}</p> : null}
               </div>
             </div>
-            <div className="qr-stage">
-              {qr ? (
-                <img
-                  src={qr}
-                  width="210"
-                  height="210"
-                  alt={
-                    lang === "zh" ? "手機配對 QR Code" : "Phone pairing QR code"
-                  }
-                />
-              ) : (
-                <QrCode size={85} strokeWidth={1} />
-              )}
-            </div>
-            <p className="qr-help">{tr("scanHelp", lang)}</p>
-            {url ? (
-              <div className="link-actions">
-                <button
-                  className="button compact"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(url).then(() => {
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2500);
-                    });
-                  }}
-                >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
-                  {tr(copied ? "copied" : "copy", lang)}
-                </button>
-                <a
-                  className="button compact"
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={tr("openPhone", lang)}
-                >
-                  <ExternalLink size={15} />
-                </a>
-              </div>
-            ) : null}
-            {!isSecureContext || location.hostname === "localhost" ? (
-              <p className="local-warning">{tr("secure", lang)}</p>
-            ) : null}
+            {s.mode === "phone" ? (
+              <>
+                <div className="qr-stage">
+                  {qr ? (
+                    <img
+                      src={qr}
+                      width="210"
+                      height="210"
+                      alt={
+                        lang === "zh"
+                          ? "手機配對 QR Code"
+                          : "Phone pairing QR code"
+                      }
+                    />
+                  ) : (
+                    <QrCode size={85} strokeWidth={1} />
+                  )}
+                </div>
+                <p className="qr-help">{tr("scanHelp", lang)}</p>
+                {url ? (
+                  <div className="link-actions">
+                    <button
+                      className="button compact"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(url).then(() => {
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2500);
+                        });
+                      }}
+                    >
+                      {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
+                      {tr(copied ? "copied" : "copy", lang)}
+                    </button>
+                    <a
+                      className="button compact"
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={tr("openPhone", lang)}
+                    >
+                      <ExternalLink size={15} />
+                    </a>
+                  </div>
+                ) : null}
+                {!isSecureContext || location.hostname === "localhost" ? (
+                  <p className="local-warning">{tr("secure", lang)}</p>
+                ) : null}
+              </>
+            ) : (
+              <p className="demo-connection">
+                {lang === "zh"
+                  ? "目前使用示範訊號，可先熟悉讀值與分析。要量測真實數據，請切回手機量測。"
+                  : "Explore readings and analysis with a simulated signal. Switch to phone mode to capture real data."}
+              </p>
+            )}
             {sourceFor(s.experiment) === "motion" ? (
               <div className="calibration-zone">
                 <button
@@ -700,7 +792,7 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                   disabled={active || (!s.caps.gravity && s.mode !== "demo")}
                   onClick={() => lab.zero()}
                 >
-                  <RotateCw size={17} />
+                  <Crosshair size={18} />
                   {tr("calibrate", lang)}
                 </button>
                 <p>{tr(s.calibration ? "calibrated" : "zeroHelp", lang)}</p>
@@ -722,6 +814,11 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                   : `Run limit ${limitFor(s.experiment)} s; download manually after finishing.`}
               </p>
               <p className="phase-text">{tr(titleKey, lang)}</p>
+              <div className="elapsed">
+                <Clock size={18} />
+                <span>{tr("elapsed", lang)}</span>
+                <b>{time(s.elapsed)}</b>
+              </div>
               <button
                 className="button primary wide"
                 disabled={
@@ -755,27 +852,24 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                   lang,
                 )}
               </button>
-              <div className="elapsed">
-                <Clock size={18} />
-                <span>{tr("elapsed", lang)}</span>
-                <b>{time(s.elapsed)}</b>
+              <div className="transport-actions">
+                <button
+                  className="button outline wide"
+                  disabled={s.phase !== "recording" || busy}
+                  onClick={() => lab.pause()}
+                >
+                  <Pause size={18} />
+                  {tr("pause", lang)}
+                </button>
+                <button
+                  className="button finish-button wide"
+                  disabled={!active || s.phase === "stopping" || busy}
+                  onClick={() => void finish()}
+                >
+                  <Square size={18} />
+                  {tr("finish", lang)}
+                </button>
               </div>
-              <button
-                className="button outline wide"
-                disabled={s.phase !== "recording" || busy}
-                onClick={() => lab.pause()}
-              >
-                <Pause size={18} />
-                {tr("pause", lang)}
-              </button>
-              <button
-                className="button wide"
-                disabled={!active || s.phase === "stopping" || busy}
-                onClick={() => void finish()}
-              >
-                <Square size={18} />
-                {tr("finish", lang)}
-              </button>
               {s.phase === "finished" ? (
                 <div className="finished-actions">
                   <p className={s.complete ? "success" : "warning"}>

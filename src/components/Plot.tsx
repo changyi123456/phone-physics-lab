@@ -66,8 +66,8 @@ export const Plot = memo(function Plot({
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    const text = theme === "dark" ? "#96a8c3" : "#62748f",
-      grid = theme === "dark" ? "#26374f" : "#e8eef6";
+    const text = theme === "dark" ? "#a0b5b2" : "#5e7070",
+      grid = theme === "dark" ? "#304541" : "#e7eeed";
     c.data.datasets = series.map((s) => ({
       label: s.name,
       data: s.points,
@@ -83,7 +83,10 @@ export const Plot = memo(function Plot({
       scale.ticks = {
         ...scale.ticks,
         color: text,
-        font: { family: "system-ui", size: 11 },
+        font: {
+          family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          size: 11,
+        },
       };
       scale.title = {
         display: true,

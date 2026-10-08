@@ -24,7 +24,7 @@ export function Heatmap({
       h = 220;
     c.width = w;
     c.height = h;
-    ctx.fillStyle = theme === "dark" ? "#111d30" : "#f9fbfe";
+    ctx.fillStyle = theme === "dark" ? "#162626" : "#ffffff";
     ctx.fillRect(0, 0, w, h);
     const data = frames.slice(-500);
     if (!data.length) return;
@@ -57,7 +57,7 @@ export function Heatmap({
         );
       }
     }
-    ctx.fillStyle = theme === "dark" ? "#96a8c3" : "#62748f";
+    ctx.fillStyle = theme === "dark" ? "#a0b5b2" : "#5e7070";
     ctx.font = "13px system-ui";
     ctx.fillText(`${Math.round(maxF)} Hz`, 5, 20);
     ctx.fillText("0 Hz", 16, 187);
@@ -68,7 +68,11 @@ export function Heatmap({
     <section className="plot">
       <div className="plot-heading">
         <h3>{lang === "zh" ? "頻率–時間熱圖" : "Frequency–time heatmap"}</h3>
-        <span className="muted">−60 … 0 dB relative</span>
+        <span className="muted">
+          {lang === "zh"
+            ? "−60 … 0 dB 相對值・各窗峰值為 0 dB"
+            : "−60 … 0 dB relative · per-window peak"}
+        </span>
       </div>
       <canvas
         className="heatmap"

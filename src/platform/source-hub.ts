@@ -1,3 +1,8 @@
+import {
+  CAMERA_MIN_INTERVAL_MS,
+  GENERIC_SENSOR_HZ,
+  AUDIO_BLOCK_SAMPLES,
+} from "../core/timing";
 import { Sensors } from "./sensors";
 import { sourceFor } from "../core/advanced-registry";
 import type { ExperimentId, Sample } from "../core/types";
@@ -91,7 +96,9 @@ export class SourceHub extends Sensors {
       clock: "AudioContext sample frame; input latency unknown",
     };
     const anchor = performance.now() - ctx.currentTime * 1000;
-    const node = new AudioWorkletNode(ctx, "pcm-capture");
+    const node = new AudioWorkletNode(ctx, "pcm-capture", {
+      processorOptions: { blockSamples: AUDIO_BLOCK_SAMPLES },
+    });
     this.node = node;
     node.port.onmessage = (e) =>
       this.emit(
@@ -156,7 +163,7 @@ export class SourceHub extends Sensors {
     let last = 0;
     const sample = (time: number) => {
       if (
-        time - last < 95 ||
+        time - last < CAMERA_MIN_INTERVAL_MS ||
         video.readyState < 2 ||
         this.paused ||
         document.hidden
@@ -236,7 +243,11 @@ export class SourceHub extends Sensors {
       >
     )[names[this.source]];
     if (!Constructor) throw new Error("sourceUnsupported");
-    const sensor = new Constructor({ frequency: 20 });
+    const sensor = new Constructor({ frequency: GENERIC_SENSOR_HZ });
+    this.settings = {
+      requestedFrequencyHz: GENERIC_SENSOR_HZ,
+      clock: "Generic Sensor timestamp; hardware latency unknown",
+    };
     this.generic = sensor;
     sensor.addEventListener("reading", () => {
       const values =
@@ -245,7 +256,7 @@ export class SourceHub extends Sensors {
           : [sensor.illuminance];
       if (!values.every(Number.isFinite)) return;
       this.emit(sensor.timestamp, values, {
-        units: ({ magnetometer: "µT", light: "lux" } as Record<string, string>)[
+        units: ({ magnetometer: "µT", light: "lx" } as Record<string, string>)[
           this.source
         ],
       });

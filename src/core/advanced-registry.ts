@@ -126,7 +126,7 @@ export const advancedExperiments: Experiment[] = [
     ["拍手或撞擊的來源時間與間隔", "Source-time sound events and intervals"],
     "Δt = t₂ − t₁",
     sound,
-    [threshold, refractory],
+    [{ ...threshold, unit: "FS (1)" }, refractory],
   ),
   e(
     "bounce",
@@ -144,7 +144,7 @@ export const advancedExperiments: Experiment[] = [
         "Infer height between consecutive ground impacts, assuming vertical free flight, one surface and g=9.80665. Inspect events manually. Other groups can cause false triggers; energy in joules is not directly measured.",
       ],
     },
-    [threshold, refractory],
+    [{ ...threshold, unit: "FS (1)" }, refractory],
   ),
   e(
     "accelSpectrum",
@@ -169,7 +169,7 @@ export const advancedExperiments: Experiment[] = [
     ["以合線性加速度觸發事件", "Trigger events with linear acceleration"],
     "|a| ≥ threshold · Δt",
     motion,
-    [{ ...threshold, value: 2 }, refractory],
+    [{ ...threshold, value: 2, unit: "m/s²" }, refractory],
   ),
   e(
     "springK",
@@ -256,7 +256,14 @@ export const advancedExperiments: Experiment[] = [
     "Δt · frame-limited",
     camera,
     [
-      { ...threshold, value: 100, min: 1, max: 254, step: 1 },
+      {
+        ...threshold,
+        value: 100,
+        min: 1,
+        max: 254,
+        step: 1,
+        unit: "1 (0…255)",
+      },
       refractory,
       param(
         "dark",
@@ -284,7 +291,7 @@ export const advancedExperiments: Experiment[] = [
         "依瀏覽器與裝置能力啟用",
         "Available only when the browser exposes this sensor",
       ],
-      ["B (µT)", "E (lux)"][i],
+      ["B (µT)", "E (lx)"][i],
       {
         position: [
           "在手機按啟用，網站會檢查實際 API 與讀值。若不支援，請選其他手機量測模組。",

@@ -1,3 +1,4 @@
+import { AUDIO_ENVELOPE_S } from "./timing";
 import { analyse, fftSpectrum, median } from "./analysis";
 import {
   COLORS,
@@ -151,7 +152,7 @@ export function triggerEvents(
     const seg = s.segment ?? 0;
     if (source === "audio" && s.data?.rate) {
       const v = s.data.values,
-        n = Math.max(1, Math.round(s.data.rate * 0.005));
+        n = Math.max(1, Math.round(s.data.rate * AUDIO_ENVELOPE_S));
       for (let i = 0; i < v.length; i += n) {
         const slice = v.slice(i, i + n);
         points.push({
@@ -311,7 +312,7 @@ export function advancedAnalyse(
         metric(["取樣率", "Sample rate"], rate, "Hz"),
       );
     }
-    plot(["聲音頻譜", "Sound spectrum"], "f (Hz)", "relative amplitude", [
+    plot(["聲音頻譜", "Sound spectrum"], "f (Hz)", "relative amplitude (1)", [
       series("FFT", latestSpectrum, COLORS[1]),
     ]);
     if (id === "soundHistory")
@@ -399,7 +400,7 @@ export function advancedAnalyse(
     plot(
       ["加速度頻譜", "Acceleration spectrum"],
       "f (Hz)",
-      "relative amplitude",
+      "relative amplitude (1)",
       [series("FFT", result.spectrum, COLORS[1])],
     );
     if (id === "vibration") {
@@ -579,7 +580,7 @@ export function advancedAnalyse(
             ["亮度", "Brightness"],
           ][i] as [string, string],
           rgb?.[i] ?? null,
-          "/255",
+          "1 (0…255)",
         ),
       ),
     );

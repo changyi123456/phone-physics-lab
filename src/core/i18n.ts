@@ -2,8 +2,8 @@ import type { Lang } from "./types";
 export type Text = [string, string];
 export const tx = (v: Text, lang: Lang) => v[lang === "zh" ? 0 : 1];
 const copy = {
-  brand: ["手機物理實驗室", "Phone Physics Lab"],
-  subtitle: ["手機感測 · 電腦分析", "Phone sensing · Desktop analysis"],
+  brand: ["Phylab", "Phylab"],
+  subtitle: ["手機感測・電腦實驗", "Phone sensing · Desktop experiments"],
   phoneSubtitle: ["手機感測器", "Phone sensor"],
   local: ["本次資料僅保留於電腦", "This data is stored only on your computer."],
   light: ["亮色主題", "Light theme"],
@@ -46,8 +46,8 @@ const copy = {
   copy: ["複製手機連結", "Copy phone link"],
   copied: ["已複製連結", "Link copied"],
   openPhone: ["開啟感測器頁面", "Open sensor page"],
-  calibrate: ["校準感測器", "Calibrate sensors"],
-  zero: ["確定目前姿態為 0°", "Set current pose to 0°"],
+  calibrate: ["設目前姿態為 0°", "Set current pose to 0°"],
+  zero: ["確認：將目前姿態設為 0°", "Confirm: set this pose to 0°"],
   zeroHelp: [
     "相對歸零不改變原始資料",
     "Relative zero preserves original readings.",
@@ -74,6 +74,10 @@ const copy = {
   finished: ["本次量測已結束", "Measurement finished"],
   idle: ["等待電腦", "Waiting for desktop"],
   readyToMeasure: ["等待開始", "Ready to measure"],
+  demoEmpty: [
+    "開始示範量測，即可查看曲線",
+    "Start a demo measurement to see the plots",
+  ],
   empty: ["配對手機後即可開始量測", "Pair your phone to start measuring"],
   magnitude: ["合量", "Magnitude"],
   period: ["週期 T", "Period T"],
@@ -118,13 +122,10 @@ const copy = {
   ready: ["連線準備完成", "Ready to connect"],
   unpaired: ["等待電腦配對", "Waiting for desktop pairing"],
   current: ["目前選擇的實驗", "Current experiment"],
-  phoneInstructions: [
-    "開始前請依以下步驟操作",
-    "Follow these steps to get started",
-  ],
-  phoneEnable: ["啟用感測", "Enable sensors"],
-  phonePosition: ["擺放手機", "Position phone"],
-  phoneStart: ["回電腦開始量測", "Start on desktop"],
+  phoneInstructions: ["感測器準備", "Sensor setup"],
+  phoneEnable: ["啟用感測器", "Enable sensors"],
+  phonePosition: ["擺放與校準", "Position & calibrate"],
+  phoneStart: ["由電腦開始", "Start on desktop"],
   phoneState: ["量測狀態", "Measurement"],
   unsupported: [
     "必要感測欄位不可用，請檢查授權或換一支手機。",

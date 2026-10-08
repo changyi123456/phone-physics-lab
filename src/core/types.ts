@@ -45,6 +45,7 @@ export interface Sample {
   };
   t: number;
   eventTime: number;
+  sensorIntervalMs?: number;
   segment?: number;
   g: Vec | null;
   a: Vec | null;
@@ -86,6 +87,7 @@ export interface Run {
   samples: Sample[];
   quality: Quality[];
   complete: boolean;
+  transport?: import("./timing").ArrivalInfo;
   manifest?: import("./manifest").TeacherManifest;
 }
 export interface Point {
@@ -114,7 +116,7 @@ export const EMPTY_CAPS: Capabilities = {
   gyro: false,
   orientation: false,
 };
-export const COLORS = ["#3b82f6", "#0db5b0", "#f58a34", "#9986e8"];
+export const COLORS = ["#14a69b", "#738ceb", "#e78e42", "#b18fe3"];
 export const magnitude = (v: Vec) => Math.hypot(...v);
 export const subtract = (a: Vec, b: Vec): Vec => [
   a[0] - b[0],
@@ -164,6 +166,10 @@ export function validSample(v: unknown): v is Sample {
     s.t >= 0 &&
     s.t < 86400 &&
     Number.isFinite(s.eventTime) &&
+    (s.sensorIntervalMs === undefined ||
+      (Number.isFinite(s.sensorIntervalMs) &&
+        s.sensorIntervalMs >= 0 &&
+        s.sensorIntervalMs < 60000)) &&
     Number.isFinite(s.screen) &&
     (s.segment === undefined ||
       (Number.isSafeInteger(s.segment) && s.segment >= 0)) &&

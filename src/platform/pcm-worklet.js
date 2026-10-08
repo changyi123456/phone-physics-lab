@@ -1,7 +1,9 @@
 class PCMCapture extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
-    this.buffer = new Float32Array(1024);
+    this.buffer = new Float32Array(
+      options.processorOptions?.blockSamples ?? 1024,
+    );
     this.used = 0;
     this.first = 0;
     this.enabled = true;

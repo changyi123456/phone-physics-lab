@@ -1,3 +1,4 @@
+import { samplingInfo } from "./timing";
 import type {
   Analysis,
   Calibration,
@@ -19,15 +20,7 @@ const variance = (a: number[]) => {
   return mean(a.map((v) => (v - m) ** 2));
 };
 export function sampleRate(samples: Sample[]) {
-  const source = samples.find((s) => s.source !== "orientation")?.source;
-  const audio = samples.filter((s) => s.source === "audio").at(-1);
-  if (audio?.data?.rate) return audio.data.rate;
-  const m = samples.filter((s) => s.source === source);
-  const dt = m
-    .slice(1)
-    .map((s, i) => s.t - m[i].t)
-    .filter((v) => v > 0);
-  return dt.length ? 1 / median(dt) : 0;
+  return samplingInfo(samples).rateHz ?? 0;
 }
 export function angles(g: Vec, mount = "flat"): Vec {
   const [x, y, z] = g;

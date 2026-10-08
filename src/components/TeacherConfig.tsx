@@ -77,7 +77,9 @@ export function TeacherConfig({
       {manifest ? (
         <p>
           <strong>{manifest.name[lang]}</strong> · {manifest.sensor} ·
-          threshold={manifest.threshold} · refractory={manifest.refractory}s
+          threshold={manifest.threshold}{" "}
+          {manifest.sensor === "gyro" ? "rad/s" : "m/s²"} · refractory=
+          {manifest.refractory}s
         </p>
       ) : null}
     </section>

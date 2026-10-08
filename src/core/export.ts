@@ -1,3 +1,12 @@
+import {
+  samplingInfo,
+  AUDIO_ENVELOPE_S,
+  PHONE_FLUSH_MS,
+  UI_REFRESH_MS,
+  ANALYSIS_REFRESH_MS,
+} from "./timing";
+import { unitsFor } from "./measurement-info";
+import { sourceFor } from "./advanced-registry";
 import { advancedAnalyse } from "./advanced-analysis";
 import { activeDuration } from "./duration";
 import { compareTrials, type Trial } from "./session";
@@ -28,7 +37,7 @@ export async function buildWorkbook(
   const result = analyse(recent, run.experiment, run.params, run.calibration);
   put(tr("infoSheet", lang), [
     [tr("details", lang), tr("value", lang)],
-    [label("應用程式", "Application"), "Phone Physics Lab 0.2.0"],
+    [label("應用程式", "Application"), "Phylab 0.3.0"],
     [tr("schema", lang), 2],
     ["runId", run.id],
     [label("實驗", "Experiment"), tx(getExperiment(run.experiment).name, lang)],
@@ -41,10 +50,15 @@ export async function buildWorkbook(
     [label("接收事件數", "Events received"), run.samples.length],
     [
       label("時間基準", "Time basis"),
-      label(
-        "手機瀏覽器事件時間，相對本輪起點；非網路接收時間",
-        "Phone browser event timestamp relative to run start; not network arrival time",
-      ),
+      run.mode === "demo"
+        ? label(
+            "示範模型時間，非手機實測",
+            "Simulated model time; not measured on a phone",
+          )
+        : label(
+            "手機來源時間，相對本輪起點；非網路接收時間。音訊依 PCM frame，相機依 expectedDisplayTime；硬體捕捉延遲未知。",
+            "Phone source time relative to run start; not network arrival time. Audio uses PCM frames; camera uses expectedDisplayTime. Hardware capture latency is unknown.",
+          ),
     ],
     [
       label("座標定義", "Coordinates"),
@@ -69,6 +83,134 @@ export async function buildWorkbook(
     ...Object.entries(run.params),
   ]);
 
+  const timing = samplingInfo(run.samples, sourceFor(run.experiment));
+  const transport = run.transport;
+  put(zh ? "單位與時間" : "Units and timing", [
+    [
+      label("量／條件", "Quantity / condition"),
+      tr("value", lang),
+      tr("unit", lang),
+    ],
+    [
+      label(
+        "取樣率（PCM 時鐘／來源間隔中位數）",
+        "Sample rate (PCM clock / median source interval)",
+      ),
+      timing.rateHz,
+      "Hz",
+    ],
+    [label("取樣點間隔", "Sample step"), timing.stepS, "s"],
+    [
+      label(
+        "來源事件／音訊塊間隔中位數",
+        "Median source-event / audio-block interval",
+      ),
+      timing.eventIntervalS,
+      "s",
+    ],
+    [
+      label("來源間隔最小值", "Minimum source interval"),
+      timing.minIntervalS,
+      "s",
+    ],
+    [
+      label("來源間隔最大值", "Maximum source interval"),
+      timing.maxIntervalS,
+      "s",
+    ],
+    [
+      label("統計視窗有效間隔數", "Window interval count"),
+      timing.intervalCount,
+      "1",
+    ],
+    [label("統計視窗跨度", "Window span"), timing.windowS, "s"],
+    [
+      label("視窗定義", "Window definition"),
+      label(
+        "最近 20 秒內最新分段、同一來源最多 300 筆事件；缺口保留，暫停不混算",
+        "Up to 300 events from the same source in the latest segment within 20 s; gaps retained, pauses excluded",
+      ),
+      "",
+    ],
+    [
+      label("瀏覽器回報硬體間隔", "Browser-reported hardware interval"),
+      timing.reportedIntervalS,
+      "s",
+    ],
+    [
+      label("每音訊塊點數", "Samples per audio block"),
+      timing.blockSamples,
+      "1",
+    ],
+    [label("音訊塊長", "Audio block duration"), timing.blockDurationS, "s"],
+    [
+      label(
+        "聲音 RMS 偵測窗目標（非準確度）",
+        "Target sound RMS window (not accuracy)",
+      ),
+      sourceFor(run.experiment) === "audio" ? AUDIO_ENVELOPE_S : null,
+      "s",
+    ],
+    [
+      label(
+        "批次檢查目標（音訊就緒立即送）",
+        "Batch-check target (audio sent immediately)",
+      ),
+      PHONE_FLUSH_MS / 1000,
+      "s",
+    ],
+    [
+      label("讀值更新目標", "Readout refresh target"),
+      UI_REFRESH_MS / 1000,
+      "s",
+    ],
+    [
+      label("分析最短排程", "Minimum analysis scheduling interval"),
+      ANALYSIS_REFRESH_MS / 1000,
+      "s",
+    ],
+    [
+      label(
+        "錄製資料封包數（含重送）",
+        "Recording data packets (including retries)",
+      ),
+      transport?.packetCount ?? null,
+      "1",
+    ],
+    [
+      label(
+        "接收間隔中位數（最近最多 100 間隔）",
+        "Median arrival interval (up to 100 recent intervals)",
+      ),
+      transport?.medianMs === null || transport?.medianMs === undefined
+        ? null
+        : transport.medianMs / 1000,
+      "s",
+    ],
+    [
+      label("接收間隔視窗間隔數", "Arrival window interval count"),
+      transport?.intervalCount ?? null,
+      "1",
+    ],
+    [
+      label("最後 RTT（非單向延遲）", "Last RTT (not one-way latency)"),
+      transport?.rttMs ? transport.rttMs / 1000 : null,
+      "s",
+    ],
+    [
+      label("準確度限制", "Accuracy limits"),
+      label(
+        "取樣間隔與小數位不等於準確度；瀏覽器可能量化。未校準感測器或硬體時鐘。",
+        "Sample spacing and decimal places are not accuracy. Browsers may quantise values. Sensors and hardware clocks are not calibrated.",
+      ),
+      "",
+    ],
+    ...unitsFor(run.experiment, run.params.customField).map((row) => [
+      tx(row.quantity, lang),
+      tx(row.note, lang),
+      row.unit,
+    ]),
+  ]);
   const fields = zh
     ? [
         "序號",
@@ -107,7 +249,11 @@ export async function buildWorkbook(
         "Screen angle (°)",
       ];
   put(tr("motionSheet", lang), [
-    [...fields, zh ? "分段" : "Segment"],
+    [
+      ...fields,
+      zh ? "分段" : "Segment",
+      zh ? "硬體回報間隔 (ms)" : "Reported hardware interval (ms)",
+    ],
     ...run.samples
       .filter((s) => s.source === "motion")
       .map((s) => [
@@ -120,6 +266,7 @@ export async function buildWorkbook(
         s.eventTime,
         s.screen,
         s.segment ?? 0,
+        s.sensorIntervalMs ?? null,
       ]),
   ]);
   const orient = run.samples.filter((s) => s.source === "orientation");
@@ -166,6 +313,10 @@ export async function buildWorkbook(
           zh ? "物理角 2 (°)" : "Physical angle 2 (°)",
           zh ? "相對角 1 (°)" : "Relative angle 1 (°)",
           zh ? "相對角 2 (°)" : "Relative angle 2 (°)",
+          "physical angle 1 (rad)",
+          "physical angle 2 (rad)",
+          "relative angle 1 (rad)",
+          "relative angle 2 (rad)",
         ],
         ...run.samples
           .filter((s) => s.source === "motion")
@@ -177,6 +328,10 @@ export async function buildWorkbook(
               a?.[1] ?? null,
               a ? relativeAngle(a[0], ref[0]) : null,
               a ? relativeAngle(a[1], ref[1]) : null,
+              a ? (a[0] * Math.PI) / 180 : null,
+              a ? (a[1] * Math.PI) / 180 : null,
+              a ? (relativeAngle(a[0], ref[0]) * Math.PI) / 180 : null,
+              a ? (relativeAngle(a[1], ref[1]) * Math.PI) / 180 : null,
             ];
           }),
       ]);
@@ -213,7 +368,7 @@ export async function buildWorkbook(
     ]);
   if (result.spectrum.length)
     put(tr("spectrum", lang), [
-      ["f (Hz)", zh ? "相對幅度" : "Relative amplitude"],
+      ["f (Hz)", zh ? "相對幅度 (1)" : "Relative amplitude (1)"],
       ...result.spectrum.map((p) => [p.x, p.y]),
     ]);
   const extra = advancedAnalyse(
@@ -250,11 +405,11 @@ export async function buildWorkbook(
     ]);
   if (extra.fit)
     put(zh ? "擬合資訊" : "Fit info", [
-      ["metric", "value"],
-      ["slope", extra.fit.slope],
-      ["intercept", extra.fit.intercept],
-      ["R²", extra.fit.r2],
-      ["slope standard error", extra.fit.stderr],
+      ["metric", "value", "unit"],
+      ["slope", extra.fit.slope, "m"],
+      ["intercept", extra.fit.intercept, "m/s²"],
+      ["R²", extra.fit.r2, "1"],
+      ["slope standard error", extra.fit.stderr, "m"],
     ]);
   if (extra.heatmap.length)
     put(zh ? "頻率時間熱圖" : "Spectrogram", [
@@ -411,11 +566,15 @@ export async function buildWorkbook(
       if (comparison.fit) {
         const fit = comparison.fit;
         put(zh ? "多輪擬合" : "Trial fit", [
-          ["quantity", "value"],
-          ["slope", fit.slope],
-          ["intercept", fit.intercept],
-          ["R²", fit.r2],
-          ["slope standard error", fit.stderr],
+          ["quantity", "value", "unit"],
+          ["slope", fit.slope, comparison.scan === "length" ? "s²/m" : "s²/kg"],
+          ["intercept", fit.intercept, "s²"],
+          ["R²", fit.r2, "1"],
+          [
+            "slope standard error",
+            fit.stderr,
+            comparison.scan === "length" ? "s²/m" : "s²/kg",
+          ],
           [
             comparison.scan === "length" ? "g model (m/s²)" : "k model (N/m)",
             comparison.derived,

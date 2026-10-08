@@ -148,6 +148,8 @@ export class Sensors {
     const rot = rotationToXYZ(e.rotationRate);
     s.w = rot.w;
     s.rawRotation = rot.raw;
+    if (Number.isFinite(e.interval) && e.interval > 0)
+      s.sensorIntervalMs = e.interval;
     this.onSample?.(s);
   };
   private orientation = (e: DeviceOrientationEvent) => {

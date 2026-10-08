@@ -1,3 +1,11 @@
+import {
+  samplingInfo,
+  arrivalInfo,
+  UI_REFRESH_MS,
+  ANALYSIS_REFRESH_MS,
+  type SamplingInfo,
+  type ArrivalInfo,
+} from "./timing";
 import { activeDuration } from "./duration";
 import { parseManifest, type TeacherManifest } from "./manifest";
 import { advancedAnalyse, type AdvancedAnalysis } from "./advanced-analysis";
@@ -42,6 +50,8 @@ export interface LabSnapshot {
   recent: Sample[];
   latest: Sample | null;
   rate: number;
+  timing: SamplingInfo;
+  transport: ArrivalInfo;
   count: number;
   elapsed: number;
   analysis: Analysis;
@@ -65,6 +75,8 @@ export class Lab {
   private lastAnalysis = 0;
   private workerBusy = false;
   private lastReceived = 0;
+  private packetArrivals: number[] = [];
+  private packetCount = 0;
   private demoOrigin = 0;
   private nextDemo = 0;
   private demoNextTime = 0;
@@ -84,6 +96,8 @@ export class Lab {
     recent: [],
     latest: null,
     rate: 0,
+    timing: samplingInfo([]),
+    transport: arrivalInfo([]),
     count: 0,
     elapsed: 0,
     analysis: analyse([], "acceleration", {}, null),
@@ -127,7 +141,7 @@ export class Lab {
       if (e.data.job === this.job && this.state.phase !== "finished")
         this.patch({ analysis: e.data.result, advanced: e.data.advanced });
     };
-    this.timer = setInterval(() => this.tick(), 100);
+    this.timer = setInterval(() => this.tick(), UI_REFRESH_MS);
   }
   subscribe = (f: () => void) => {
     this.listeners.add(f);
@@ -148,7 +162,13 @@ export class Lab {
     if (!this.disposed) {
       if (previous && previous !== code) {
         this.preview = [];
-        this.patch({ caps: { ...EMPTY_CAPS }, calibration: null });
+        this.patch({
+          caps: { ...EMPTY_CAPS },
+          calibration: null,
+          rate: 0,
+          timing: samplingInfo([]),
+          transport: arrivalInfo([]),
+        });
       }
       this.patch({ code });
     }
@@ -188,6 +208,9 @@ export class Lab {
             : { ...EMPTY_CAPS },
       phase: "idle",
       recent: [],
+      rate: 0,
+      timing: samplingInfo([]),
+      transport: arrivalInfo([]),
       count: 0,
       elapsed: 0,
       quality: [],
@@ -307,6 +330,9 @@ export class Lab {
       quality: [],
       complete: false,
     };
+    this.packetArrivals = [];
+    this.packetCount = 0;
+    this.patch({ transport: arrivalInfo([]) });
     this.recorder = new Recorder(run);
     this.exported = false;
     this.generation++;
@@ -315,6 +341,9 @@ export class Lab {
       count: 0,
       elapsed: 0,
       recent: [],
+      rate: 0,
+      timing: samplingInfo([]),
+      transport: arrivalInfo([]),
       quality: [],
       complete: false,
       message: "",
@@ -342,6 +371,7 @@ export class Lab {
   pause() {
     if (!this.recorder || this.state.phase !== "recording") return;
     this.deadline = Date.now() + 10000;
+    this.packetArrivals = [];
     this.patch({ phase: "pausing", message: "" });
     if (this.state.mode === "demo") {
       this.recorder.event({
@@ -358,6 +388,7 @@ export class Lab {
     )
       return;
     this.deadline = Date.now() + 10000;
+    this.packetArrivals = [];
     this.patch({ phase: "resuming", message: "" });
     if (this.state.mode === "demo") {
       this.demoNextTime = (performance.now() - this.demoOrigin) / 1000;
@@ -389,9 +420,13 @@ export class Lab {
     this.job++;
     const recent = this.recorder.recent();
     this.recorder.materialize();
+    if (this.state.mode === "phone")
+      this.recorder.run.transport = this.state.transport;
     this.patch({
       phase: "finished",
       recent,
+      rate: sampleRate(recent),
+      timing: samplingInfo(recent, sourceFor(this.state.experiment)),
       advanced: advancedAnalyse(
         this.recorder.run.samples,
         this.state.experiment,
@@ -431,6 +466,9 @@ export class Lab {
       elapsed: 0,
       count: 0,
       recent: [],
+      rate: 0,
+      timing: samplingInfo([]),
+      transport: arrivalInfo([]),
       quality: [],
       analysis: analyse(
         [],
@@ -439,6 +477,18 @@ export class Lab {
         this.state.calibration,
       ),
       message: "",
+    });
+  }
+  private observePacket() {
+    this.packetCount++;
+    this.packetArrivals.push(performance.now());
+    this.packetArrivals = this.packetArrivals.slice(-101);
+    this.patch({
+      transport: arrivalInfo(
+        this.packetArrivals,
+        this.packetCount,
+        this.link.rtt,
+      ),
     });
   }
   private receive(p: Wire) {
@@ -461,6 +511,10 @@ export class Lab {
           ? {
               latest: motion ?? this.state.latest,
               rate: sampleRate(this.preview),
+              timing: samplingInfo(
+                this.preview,
+                sourceFor(this.state.experiment),
+              ),
             }
           : {}),
       });
@@ -472,6 +526,7 @@ export class Lab {
       p.runId === this.recorder?.run.id &&
       this.state.phase !== "finished"
     ) {
+      if (p.samples.some(validSample)) this.observePacket();
       const ack = this.recorder!.ingest(
         p.samples,
         typeof p.drop === "number" ? p.drop : 0,
@@ -594,7 +649,7 @@ export class Lab {
         s.w = [0, 0, 0];
         this.preview.push(s);
         this.preview = this.preview.filter((v) => v.t > s.t - 1.5);
-        if (this.state.phase === "idle") this.patch({ latest: s, rate: 50 });
+        if (this.state.phase === "idle") this.patch({ latest: s, rate: 0 });
       }
     }
     if (this.recorder && isActive(this.state.phase)) {
@@ -612,10 +667,11 @@ export class Lab {
           this.recorder.run.quality,
         ),
         rate: sampleRate(recent),
+        timing: samplingInfo(recent, sourceFor(this.state.experiment)),
         quality: this.recorder.run.quality.slice(),
         rtt: this.link.rtt,
       });
-      if (now - this.lastAnalysis > 600 && !this.workerBusy) {
+      if (now - this.lastAnalysis > ANALYSIS_REFRESH_MS && !this.workerBusy) {
         this.lastAnalysis = now;
         this.workerBusy = true;
         this.worker.postMessage({

@@ -93,7 +93,7 @@ export function demoSample(
         source === "magnetometer"
           ? [20 * Math.sin(t), 10, 35]
           : [source === "light" ? 400 + 100 * Math.sin(t) : 10 + Math.sin(t)],
-      units: { magnetometer: "µT", light: "lux" }[source],
+      units: { magnetometer: "µT", light: "lx" }[source],
     };
   return {
     runId,
