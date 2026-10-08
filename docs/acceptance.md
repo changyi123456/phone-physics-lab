@@ -15,6 +15,8 @@
 | 桌機／手機版面 | 1536×1024、1280×720、390×844 | 通過；短筆電控制區縮排，手機無橫向溢出 |
 | 真 WebRTC 兩端 | 獨立 browser contexts，經 PeerJS 公共信令建立 DataChannel→控制→停止 ACK | 通過；測試感測輸入為合成 DeviceMotionEvent，非硬體 |
 | WebRTC 檔案回讀 | 最後一次兩端測試接收 228 筆 motion；序號／來源時間／g 值／停止完整性 | 通過；Chrome 149.0.7827.55 |
+| UI 偏好與開發更新 | 亮暗／語言切換→重新整理；React Fast Refresh 後模式仍保留 | 通過；已拆出 App 元件，修復曾出現的重複 createRoot 開發錯誤 |
+| HTTPS 發布 | GitHub Actions 建置／測試／Pages 部署、公開首頁與手機邀請網址 | 通過；https://changyi123456.github.io/phone-physics-lab/ |
 | 瀏覽器健康 | 正確頁名、有效內容、無框架錯誤遮罩、console／page errors、可見互動 | 通過 |
 | 真手機感測 | iPhone Safari／Android Chrome | 待測，需實體裝置 |
 | 跨網路 | 校園 Wi-Fi／另一 Wi-Fi／行動網路，直連及 TURN 路徑 | 待測，需實際網路 |
@@ -34,3 +36,5 @@
 每次實測記錄：手機型號、iOS／Android 版本、瀏覽器版本、兩端網路、實測取樣頻率、RTT、事件數、序號缺漏、背景／重連、最後資料確認、匯出列數與人工對照誤差。不得以模擬通過勾選實機或跨網路驗收。
 
 特別驗證：拒絕授權後如何重新允許、手機鎖屏／切背景、短斷線補傳、長斷線超出暫存、不支援必要欄位、停止逾時、下載重試，以及 30 組獨立使用的公共信令穩定性。
+
+GitHub 專案：https://github.com/changyi123456/phone-physics-lab 。部署流程使用官方 GitHub Pages Actions；第一次執行早於 Pages 啟用而失敗，設定完成後重跑成功。

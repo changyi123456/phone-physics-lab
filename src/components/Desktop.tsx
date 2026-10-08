@@ -186,7 +186,7 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
           ? "recording"
           : s.phase === "finished"
             ? "finished"
-            : "idle";
+            : "readyToMeasure";
   return (
     <div className="desktop-shell">
       <aside className="sidebar">

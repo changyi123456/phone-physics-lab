@@ -73,6 +73,7 @@ const copy = {
   recording: ["量測中", "Measuring"],
   finished: ["本次量測已結束", "Measurement finished"],
   idle: ["等待電腦", "Waiting for desktop"],
+  readyToMeasure: ["等待開始", "Ready to measure"],
   empty: ["配對手機後即可開始量測", "Pair your phone to start measuring"],
   magnitude: ["合量", "Magnitude"],
   period: ["週期 T", "Period T"],
