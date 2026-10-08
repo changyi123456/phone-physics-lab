@@ -119,7 +119,7 @@ export class Link {
     this.bind(
       this.peer.connect(`physics-v1-${this.code}`, {
         reliable: true,
-        serialization: "json",
+        serialization: "binary",
         metadata: { room: this.code, protocol: 1, device: this.device },
       }),
     );

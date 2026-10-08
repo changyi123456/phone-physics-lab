@@ -6,14 +6,46 @@ export type ExperimentId =
   | "inclination"
   | "pendulum"
   | "spring"
-  | "centripetal";
+  | "centripetal"
+  | "sound"
+  | "soundHistory"
+  | "soundTimer"
+  | "bounce"
+  | "accelSpectrum"
+  | "vibration"
+  | "motionTimer"
+  | "springK"
+  | "radius"
+  | "gps"
+  | "brightness"
+  | "color"
+  | "opticalTimer"
+  | "magnetometer"
+  | "light"
+  | "custom";
 export type Vec = [number, number, number];
 export interface Sample {
   runId: string;
   seq: number;
-  source: "motion" | "orientation";
+  source:
+    | "motion"
+    | "orientation"
+    | "audio"
+    | "gps"
+    | "camera"
+    | "magnetometer"
+    | "light";
+  data?: {
+    values: number[];
+    rate?: number;
+    accuracy?: number;
+    units?: string;
+    settings?: Record<string, string | number | boolean | null>;
+    profile?: number[];
+  };
   t: number;
   eventTime: number;
+  segment?: number;
   g: Vec | null;
   a: Vec | null;
   w: Vec | null;
@@ -26,6 +58,11 @@ export interface Capabilities {
   linear: boolean;
   gyro: boolean;
   orientation: boolean;
+  audio?: boolean;
+  gps?: boolean;
+  camera?: boolean;
+  magnetometer?: boolean;
+  light?: boolean;
 }
 export interface Calibration {
   at: string;
@@ -49,6 +86,7 @@ export interface Run {
   samples: Sample[];
   quality: Quality[];
   complete: boolean;
+  manifest?: import("./manifest").TeacherManifest;
 }
 export interface Point {
   x: number;
@@ -100,12 +138,35 @@ export function validSample(v: unknown): v is Sample {
     s.runId.length < 100 &&
     Number.isSafeInteger(s.seq) &&
     s.seq >= 1 &&
-    (s.source === "motion" || s.source === "orientation") &&
+    [
+      "motion",
+      "orientation",
+      "audio",
+      "gps",
+      "camera",
+      "magnetometer",
+      "light",
+    ].includes(s.source) &&
+    (s.data === undefined ||
+      (Array.isArray(s.data.values) &&
+        s.data.values.length <= 4096 &&
+        s.data.values.every((x) => Number.isFinite(x) && Math.abs(x) < 1e12) &&
+        (s.data.rate === undefined ||
+          (Number.isFinite(s.data.rate) &&
+            s.data.rate > 0 &&
+            s.data.rate <= 192000)) &&
+        (s.data.profile === undefined ||
+          (s.data.profile.length <= 320 &&
+            s.data.profile.every(
+              (x) => Number.isFinite(x) && x >= 0 && x <= 255,
+            ))))) &&
     Number.isFinite(s.t) &&
     s.t >= 0 &&
     s.t < 86400 &&
     Number.isFinite(s.eventTime) &&
     Number.isFinite(s.screen) &&
+    (s.segment === undefined ||
+      (Number.isSafeInteger(s.segment) && s.segment >= 0)) &&
     [s.g, s.a, s.w, s.rawRotation, s.angles].every(
       (x) => x === null || validVec(x),
     )
@@ -114,10 +175,18 @@ export function validSample(v: unknown): v is Sample {
 export function capabilities(samples: Sample[]): Capabilities {
   const c = { ...EMPTY_CAPS };
   for (const s of samples) {
-    c.gravity ||= !!s.g;
-    c.linear ||= !!s.a;
-    c.gyro ||= !!s.w;
-    c.orientation ||= !!s.angles;
+    if (s.source === "motion") {
+      c.gravity ||= !!s.g;
+      c.linear ||= !!s.a;
+      c.gyro ||= !!s.w;
+    }
+    c.orientation ||= s.source === "orientation" && !!s.angles;
+    if (
+      s.data?.values.length &&
+      s.source !== "motion" &&
+      s.source !== "orientation"
+    )
+      c[s.source] = true;
   }
   return c;
 }

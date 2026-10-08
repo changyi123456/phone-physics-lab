@@ -43,6 +43,10 @@ export class Sensors {
   runId = "";
   seq = 0;
   origin = 0;
+  paused = false;
+  segment = 0;
+  activeFrom = 0;
+  checkpoint = { seq: 0, t: 0, segment: 0, pauseAt: 0 };
   private previewSeq = 0;
   private wake?: WakeLockSentinel;
   async enable() {
@@ -68,24 +72,58 @@ export class Sensors {
     this.runId = id;
     this.seq = 0;
     this.origin = performance.now();
+    this.activeFrom = this.origin;
+    this.paused = false;
+    this.segment = 0;
+  }
+  pause() {
+    if (!this.paused) {
+      this.paused = true;
+      this.checkpoint = {
+        seq: this.seq,
+        t: (performance.now() - this.origin) / 1000,
+        segment: this.segment,
+        pauseAt: (performance.now() - this.origin) / 1000,
+      };
+    }
+    return this.checkpoint;
+  }
+  resume() {
+    if (this.paused) {
+      this.paused = false;
+      this.activeFrom = performance.now();
+      this.segment++;
+      this.checkpoint = {
+        ...this.checkpoint,
+        t: (this.activeFrom - this.origin) / 1000,
+        segment: this.segment,
+      };
+    }
+    return this.checkpoint;
   }
   stop() {
     const seq = this.seq;
     this.runId = "";
+    this.paused = false;
     return seq;
   }
-  private sample(source: "motion" | "orientation", e: Event) {
+  protected sample(source: Sample["source"], e: { timeStamp: number }) {
     const eventTime =
       e.timeStamp > 1e12 ? e.timeStamp - performance.timeOrigin : e.timeStamp;
     const running = !!this.runId;
     const relative = (eventTime - (running ? this.origin : 0)) / 1000;
-    if (relative < 0) return null;
+    if (
+      relative < 0 ||
+      (running && (this.paused || eventTime < this.activeFrom))
+    )
+      return null;
     return {
       runId: running ? this.runId : "preview",
       seq: running ? ++this.seq : ++this.previewSeq,
       source,
       t: relative,
       eventTime,
+      segment: this.segment,
       g: null,
       a: null,
       w: null,
@@ -123,7 +161,7 @@ export class Sensors {
     this.onEvent?.(document.hidden ? "background" : "foreground");
     if (!document.hidden) void this.keepAwake();
   };
-  private async keepAwake() {
+  protected async keepAwake() {
     try {
       this.wake = await navigator.wakeLock?.request("screen");
     } catch {}

@@ -64,7 +64,7 @@ const copy = {
   relative: ["相對基準角", "Relative angle"],
   control: ["實驗控制", "Measurement control"],
   elapsed: ["已經過時間", "Elapsed time"],
-  finish: ["結束並匯出 Excel", "Finish & export Excel"],
+  finish: ["結束量測", "Finish measurement"],
   export: ["下載 Excel", "Download Excel"],
   exporting: ["正在產生 Excel…", "Preparing Excel…"],
   newRun: ["開始新一輪", "New measurement"],
@@ -91,7 +91,7 @@ const copy = {
   quality: ["資料品質", "Data quality"],
   noIssues: ["尚未發現資料中斷", "No data interruption detected"],
   permission: ["感測權限", "Sensor permission"],
-  enable: ["啟用動作感測", "Enable motion sensors"],
+  enable: ["啟用感測器", "Enable sensors"],
   enabled: ["已啟用", "Enabled"],
   notEnabled: ["尚未啟用", "Not enabled"],
   requesting: ["等待感測授權…", "Requesting sensor permission…"],
@@ -195,8 +195,8 @@ const copy = {
     "Calibration is locked during measurement",
   ],
   runLimit: [
-    "已達單次 10 分鐘，正在結束量測。",
-    "10-minute measurement limit reached. Finishing.",
+    "已達本模組量測上限，結束後可自行下載 Excel。",
+    "Module recording limit reached. Download Excel when ready.",
   ],
   stale: ["等待新的感測資料", "Waiting for fresh sensor readings"],
   upDown: ["上下", "Up / down"],
@@ -223,6 +223,49 @@ const copy = {
   phoneStartHelp: [
     "完成以上步驟後，在電腦按「開始量測」。",
     "After these steps, click Start measurement on your desktop.",
+  ],
+  pause: ["暫停", "Pause"],
+  resume: ["繼續量測", "Resume measurement"],
+  paused: ["已暫停，資料保留", "Paused · data retained"],
+  pausePending: ["等待手機確認暫停", "Waiting for phone to pause"],
+  resumePending: ["等待手機繼續", "Waiting for phone to resume"],
+  pauseTimeout: [
+    "手機未確認。可重試繼續或結束量測。",
+    "Phone did not confirm. Retry resume or finish.",
+  ],
+  measurementPause: ["手動暫停", "Manual pause"],
+  measurementResume: ["繼續量測", "Measurement resumed"],
+  sourceUnsupported: [
+    "此瀏覽器未開放所需感測器。iPhone Safari 無法讀取部分原始感測器。請切換模組或使用支援該內建感測器的瀏覽器。",
+    "This browser does not expose the required sensor. Safari lacks some raw sensors. Choose another module or a browser that supports this built-in sensor.",
+  ],
+  sourceChanged: [
+    "感測來源已更換，請在手機重新啟用感測器。",
+    "Sensor source changed. Enable the selected sensor on the phone.",
+  ],
+  gpsUnavailable: [
+    "目前無法取得定位，請到戶外或檢查定位設定。",
+    "Location unavailable. Move outdoors or check location settings.",
+  ],
+  audioSuspended: [
+    "音訊擷取暫停，請回到手機頁面重新啟用。",
+    "Audio capture suspended. Return to the phone page and re-enable.",
+  ],
+  audioHelp: [
+    "請允許麥克風存取。音訊幅度是數位比例；保持手機頁面在前景。",
+    "Allow microphone access. Audio amplitude is relative to digital full scale; keep this page visible.",
+  ],
+  cameraHelp: [
+    "請允許相機存取，將目標放在預覽的中央綠框，固定照明。",
+    "Allow camera access. Put the target in the centre green region and keep lighting stable.",
+  ],
+  gpsHelp: [
+    "請允許定位，移至戶外開闊處，等待精度穩定。",
+    "Allow location outdoors with an open sky and wait for stable accuracy.",
+  ],
+  genericHelp: [
+    "僅在瀏覽器開放此內建感測器時可用；iPhone Safari 可能不支援。",
+    "Requires browser access to this built-in sensor; iPhone Safari may not support it.",
   ],
 } satisfies Record<string, Text>;
 export type Key = keyof typeof copy;

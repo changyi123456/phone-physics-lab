@@ -1,7 +1,12 @@
+import { advancedExperiments } from "./advanced-registry";
+import type { Source, Parameter } from "./advanced-registry";
 import type { Capabilities, ExperimentId } from "./types";
 import type { Text } from "./i18n";
 export interface Experiment {
   id: ExperimentId;
+  source?: Source;
+  group?: string;
+  parameters?: Parameter[];
   name: Text;
   description: Text;
   position: Text;
@@ -9,7 +14,7 @@ export interface Experiment {
   formula: string;
   required: (keyof Capabilities)[];
 }
-export const experiments: Experiment[] = [
+const basicExperiments: Experiment[] = [
   {
     id: "acceleration",
     name: ["加速度", "Acceleration"],
@@ -120,7 +125,16 @@ export const experiments: Experiment[] = [
     required: ["linear", "gyro"],
   },
 ];
+export const experiments = [...basicExperiments, ...advancedExperiments];
 export const getExperiment = (id: ExperimentId) =>
   experiments.find((e) => e.id === id)!;
-export const canMeasure = (id: ExperimentId, c: Capabilities, linear = false) =>
-  getExperiment(id).required.every((key) => c[key]) && (!linear || c.linear);
+export const canMeasure = (
+  id: ExperimentId,
+  c: Capabilities,
+  linear = false,
+  customField = 0,
+) =>
+  id === "custom"
+    ? !!c[(["linear", "gyro", "gravity"] as const)[customField] ?? "linear"]
+    : getExperiment(id).required.every((key) => c[key]) &&
+      (!linear || c.linear);

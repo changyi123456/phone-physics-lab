@@ -1,3 +1,8 @@
+import type { Trial } from "../core/session";
+import { MemoAdvancedData as AdvancedData } from "./AdvancedData";
+import { MemoSessionCompare as SessionCompare } from "./SessionCompare";
+import { TeacherConfig } from "./TeacherConfig";
+import { sourceFor, limitFor } from "../core/advanced-registry";
 import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import {
   Activity,
@@ -15,8 +20,10 @@ import {
   Copy,
   RefreshCw,
   ExternalLink,
+  Pause,
+  Square,
 } from "lucide-react";
-import { Lab } from "../core/lab";
+import { Lab, isActive } from "../core/lab";
 import { getExperiment, experiments, canMeasure } from "../core/registry";
 import { tr, tx, qualityText, type Key } from "../core/i18n";
 import { angles, vector, relativeAngle } from "../core/analysis";
@@ -61,6 +68,8 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
     s = useSyncExternalStore(lab.subscribe, lab.getSnapshot);
   const experiment = getExperiment(s.experiment);
   const [tab, setTab] = useState<"live" | "analysis">("live"),
+    [search, setSearch] = useState(""),
+    [trials, setTrials] = useState<Trial[]>([]),
     [linear, setLinear] = useState(false),
     [mount, setMount] = useState("flat"),
     [qr, setQr] = useState(""),
@@ -70,7 +79,7 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
     [exportMessage, setExportMessage] = useState("");
   const fileRef = useRef(file);
   fileRef.current = file;
-  const active = ["starting", "recording", "stopping"].includes(s.phase),
+  const active = isActive(s.phase),
     url = s.code ? lab.link.url(lang, theme) : "";
   useEffect(() => {
     if (!url) {
@@ -125,7 +134,7 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
     setBusy(true);
     setExportMessage("");
     try {
-      const bytes = await generateExcel(run, lang);
+      const bytes = await generateExcel(run, lang, trials);
       const blob = new Blob([bytes], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
@@ -147,23 +156,7 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
       setBusy(false);
     }
   };
-  const finish = async () => {
-    await lab.finish();
-    await download();
-  };
-  const limitExport = useRef("");
-  useEffect(() => {
-    const id = lab.recorder?.run.id;
-    if (
-      s.phase === "finished" &&
-      s.message === "runLimit" &&
-      id &&
-      limitExport.current !== id
-    ) {
-      limitExport.current = id;
-      void download();
-    }
-  }, [s.phase, s.message]);
+  const finish = () => lab.finish();
   const rate = s.rate > 0 ? fmt(s.rate, 1) : "—";
   const v = s.latest
     ? vector(s.latest, s.experiment, linear, s.calibration)
@@ -178,15 +171,21 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
   const isOsc = s.experiment === "pendulum" || s.experiment === "spring";
   const statusKey = s.mode === "demo" ? "demoMode" : s.link;
   const titleKey =
-    s.phase === "starting"
-      ? "startPending"
-      : s.phase === "stopping"
-        ? "stopPending"
-        : s.phase === "recording"
-          ? "recording"
-          : s.phase === "finished"
-            ? "finished"
-            : "readyToMeasure";
+    s.phase === "paused"
+      ? "paused"
+      : s.phase === "pausing"
+        ? "pausePending"
+        : s.phase === "resuming"
+          ? "resumePending"
+          : s.phase === "starting"
+            ? "startPending"
+            : s.phase === "stopping"
+              ? "stopPending"
+              : s.phase === "recording"
+                ? "recording"
+                : s.phase === "finished"
+                  ? "finished"
+                  : "readyToMeasure";
   return (
     <div className="desktop-shell">
       <aside className="sidebar">
@@ -194,21 +193,40 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
           {tr("brand", lang)}
         </a>
         <p>{tr("subtitle", lang)}</p>
+        <input
+          className="experiment-search"
+          aria-label={lang === "zh" ? "搜尋實驗" : "Search experiments"}
+          placeholder={lang === "zh" ? "搜尋實驗…" : "Search experiments…"}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <nav aria-label={lang === "zh" ? "實驗選單" : "Experiments"}>
-          {experiments.map((e, i) => {
-            const Icon = icons[i];
-            return (
-              <button
-                key={e.id}
-                className={s.experiment === e.id ? "selected" : ""}
-                onClick={() => select(e.id)}
-                disabled={active || busy}
-              >
-                <Icon size={23} />
-                <span>{tx(e.name, lang)}</span>
-              </button>
-            );
-          })}
+          {experiments
+            .filter((e) =>
+              e.name.some((name) =>
+                name.toLowerCase().includes(search.toLowerCase()),
+              ),
+            )
+            .map((e) => {
+              const Icon =
+                icons[experiments.indexOf(e)] ??
+                (e.source === "audio"
+                  ? Waves
+                  : e.source === "camera"
+                    ? Monitor
+                    : Activity);
+              return (
+                <button
+                  key={e.id}
+                  className={s.experiment === e.id ? "selected" : ""}
+                  onClick={() => select(e.id)}
+                  disabled={active || busy}
+                >
+                  <Icon size={23} />
+                  <span>{tx(e.name, lang)}</span>
+                </button>
+              );
+            })}
         </nav>
         <div className="local-note">
           <Monitor size={20} />
@@ -276,225 +294,279 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                   <span className="demo-label">{tr("demoMode", lang)}</span>
                 ) : null}
               </div>
-              <div className="readouts">
-                {s.experiment === "acceleration" ? (
-                  <div className="segments">
-                    <button
-                      className={!linear ? "selected" : ""}
-                      disabled={active}
-                      onClick={() => setLinear(false)}
-                    >
-                      {tr("withG", lang)}
-                    </button>
-                    <button
-                      className={linear ? "selected" : ""}
-                      disabled={active}
-                      onClick={() => setLinear(true)}
-                    >
-                      {tr("linear", lang)}
-                    </button>
-                  </div>
-                ) : s.experiment === "inclination" ? (
-                  <div className="segments mounts">
-                    {["flat", "upright", "side", "plane"].map((m) => (
-                      <button
-                        key={m}
-                        className={mount === m ? "selected" : ""}
-                        onClick={() => setMount(m)}
-                      >
-                        {tr(m as Key, lang)}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {isOsc ? (
-                  <>
-                    <Metric
-                      label={tr("period", lang)}
-                      value={fmt(s.analysis.period)}
-                      unit="s"
-                    />
-                    <Metric
-                      label={tr("frequency", lang)}
-                      value={fmt(s.analysis.frequency)}
-                      unit="Hz"
-                    />
-                    {s.experiment === "pendulum" ? (
-                      <Metric
-                        label={tr("gravity", lang)}
-                        value={fmt(s.analysis.gravity)}
-                        unit="m/s²"
-                      />
-                    ) : null}
-                  </>
-                ) : s.experiment === "inclination" ? (
-                  <>
-                    <Metric
-                      label={tr("physical", lang)}
-                      value={fmt(angle?.[0], 1)}
-                      unit="°"
-                    />
-                    <Metric
-                      label={tr("relative", lang)}
-                      value={fmt(
-                        angle ? relativeAngle(angle[0], angleRef[0]) : null,
-                        1,
-                      )}
-                      unit="°"
-                    />
-                  </>
-                ) : (
-                  <>
-                    {[0, 1, 2].map((i) => (
-                      <Metric
-                        key={i}
-                        label={`${["x", "y", "z"][i]} ${tr("axis", lang)}`}
-                        value={fmt(v?.[i])}
-                        unit={chartUnit.includes("rad") ? "rad/s" : "m/s²"}
-                      />
-                    ))}
-                  </>
-                )}
-                <Metric label={tr("rate", lang)} value={rate} unit="Hz" />
-              </div>
-              {tab === "analysis" && isOsc ? (
-                <>
-                  <Plot
-                    title={tr("autocorrelation", lang)}
-                    series={[
-                      {
-                        name: "C",
-                        color: COLORS[0],
-                        points: s.analysis.correlation,
-                      },
-                    ]}
-                    x="Δt (s)"
-                    y="C"
-                    theme={theme}
-                    empty={tr("insufficient", lang)}
-                  />
-                  <Plot
-                    title={tr("spectrum", lang)}
-                    series={[
-                      {
-                        name: "A",
-                        color: COLORS[1],
-                        points: s.analysis.spectrum,
-                      },
-                    ]}
-                    x="f (Hz)"
-                    y={tr("relativeAmplitude", lang)}
-                    theme={theme}
-                    empty={tr("insufficient", lang)}
-                    small
-                  />
-                </>
-              ) : s.experiment === "centripetal" ? (
-                tab === "analysis" ? (
-                  <>
-                    <Plot
-                      title={tr("relation", lang)}
-                      series={centripetalSeries(s.recent, s.calibration, false)}
-                      x="ω (rad/s)"
-                      y="a (m/s²)"
-                      theme={theme}
-                      empty={tr("empty", lang)}
-                      scatter
-                    />
-                    <Plot
-                      title={tr("squareRelation", lang)}
-                      series={centripetalSeries(s.recent, s.calibration, true)}
-                      x="ω² (rad²/s²)"
-                      y="a (m/s²)"
-                      theme={theme}
-                      empty={tr("empty", lang)}
-                      scatter
-                      small
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Plot
-                      title={tr("accelMagnitude", lang)}
-                      series={vectorSeries(
-                        s.recent,
-                        "spring",
-                        true,
-                        s.calibration,
-                      ).slice(3)}
-                      x={tr("time", lang)}
-                      y="a (m/s²)"
-                      theme={theme}
-                      empty={tr("empty", lang)}
-                    />
-                    <Plot
-                      title={tr("gyroMagnitude", lang)}
-                      series={vectorSeries(
-                        s.recent,
-                        "gyroscope",
-                        false,
-                        s.calibration,
-                      ).slice(3)}
-                      x={tr("time", lang)}
-                      y="ω (rad/s)"
-                      theme={theme}
-                      empty={tr("empty", lang)}
-                      small
-                    />
-                  </>
-                )
-              ) : s.experiment === "inclination" ? (
-                <>
-                  <Plot
-                    title={tr("anglePlot", lang)}
-                    series={angleSeries(s.recent, mount, s.calibration)}
-                    x={tr("time", lang)}
-                    y="θ (°)"
-                    theme={theme}
-                    empty={tr("empty", lang)}
-                  />
-                  <div className="analysis-note">
-                    <h3>
-                      {tr("physical", lang)} / {tr("relative", lang)}
-                    </h3>
-                    <p>{tx(experiment.physics, lang)}</p>
-                  </div>
-                </>
+              {experiments.indexOf(experiment) >= 6 ? (
+                <AdvancedData
+                  view={tab}
+                  result={s.advanced}
+                  lang={lang}
+                  theme={theme}
+                />
               ) : (
                 <>
-                  <Plot
-                    title={tr(
-                      chartUnit.includes("rad") ? "gyroPlot" : "accelPlot",
-                      lang,
+                  <div className="readouts">
+                    {s.experiment === "acceleration" ? (
+                      <div className="segments">
+                        <button
+                          className={!linear ? "selected" : ""}
+                          disabled={active}
+                          onClick={() => setLinear(false)}
+                        >
+                          {tr("withG", lang)}
+                        </button>
+                        <button
+                          className={linear ? "selected" : ""}
+                          disabled={active}
+                          onClick={() => setLinear(true)}
+                        >
+                          {tr("linear", lang)}
+                        </button>
+                      </div>
+                    ) : s.experiment === "inclination" ? (
+                      <div className="segments mounts">
+                        {["flat", "upright", "side", "plane"].map((m) => (
+                          <button
+                            key={m}
+                            className={mount === m ? "selected" : ""}
+                            onClick={() => setMount(m)}
+                          >
+                            {tr(m as Key, lang)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    {isOsc ? (
+                      <>
+                        <Metric
+                          label={tr("period", lang)}
+                          value={fmt(s.analysis.period)}
+                          unit="s"
+                        />
+                        <Metric
+                          label={tr("frequency", lang)}
+                          value={fmt(s.analysis.frequency)}
+                          unit="Hz"
+                        />
+                        {s.experiment === "spring" ? (
+                          <label className="parameter">
+                            {lang === "zh"
+                              ? "有效質量 (kg)"
+                              : "Effective mass (kg)"}
+                            <input
+                              type="number"
+                              min=".001"
+                              max="20"
+                              step=".01"
+                              value={s.params.mass ?? 0.2}
+                              disabled={active}
+                              onChange={(e) =>
+                                lab.parameter("mass", Number(e.target.value))
+                              }
+                            />
+                          </label>
+                        ) : null}
+                        {experiment.parameters?.map((p) => (
+                          <label className="parameter" key={p.key}>
+                            {tx(p.name, lang)} ({p.unit})
+                            <input
+                              type="number"
+                              min={p.min}
+                              max={p.max}
+                              step={p.step}
+                              value={s.params[p.key] ?? p.value}
+                              disabled={active}
+                              onChange={(e) =>
+                                lab.parameter(p.key, Number(e.target.value))
+                              }
+                            />
+                          </label>
+                        ))}
+                        {s.experiment === "pendulum" ? (
+                          <Metric
+                            label={tr("gravity", lang)}
+                            value={fmt(s.analysis.gravity)}
+                            unit="m/s²"
+                          />
+                        ) : null}
+                      </>
+                    ) : s.experiment === "inclination" ? (
+                      <>
+                        <Metric
+                          label={tr("physical", lang)}
+                          value={fmt(angle?.[0], 1)}
+                          unit="°"
+                        />
+                        <Metric
+                          label={tr("relative", lang)}
+                          value={fmt(
+                            angle ? relativeAngle(angle[0], angleRef[0]) : null,
+                            1,
+                          )}
+                          unit="°"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {[0, 1, 2].map((i) => (
+                          <Metric
+                            key={i}
+                            label={`${["x", "y", "z"][i]} ${tr("axis", lang)}`}
+                            value={fmt(v?.[i])}
+                            unit={chartUnit.includes("rad") ? "rad/s" : "m/s²"}
+                          />
+                        ))}
+                      </>
                     )}
-                    series={basic.slice(0, 3)}
-                    x={tr("time", lang)}
-                    y={chartUnit}
-                    theme={theme}
-                    empty={tr("empty", lang)}
-                  />
-                  <Plot
-                    title={tr(
-                      chartUnit.includes("rad")
-                        ? "gyroMagnitude"
-                        : "accelMagnitude",
-                      lang,
-                    )}
-                    series={basic.slice(3)}
-                    x={tr("time", lang)}
-                    y={chartUnit}
-                    theme={theme}
-                    empty={tr("empty", lang)}
-                    small
-                  />
-                  {tab === "analysis" ? (
-                    <div className="analysis-note">
-                      <p>{tx(experiment.physics, lang)}</p>
-                      <p>
-                        {tr("count", lang)}: {s.count} · {experiment.formula}
-                      </p>
-                    </div>
-                  ) : null}
+                    <Metric label={tr("rate", lang)} value={rate} unit="Hz" />
+                  </div>
+                  {tab === "analysis" && isOsc ? (
+                    <>
+                      <Plot
+                        title={tr("autocorrelation", lang)}
+                        series={[
+                          {
+                            name: "C",
+                            color: COLORS[0],
+                            points: s.analysis.correlation,
+                          },
+                        ]}
+                        x="Δt (s)"
+                        y="C"
+                        theme={theme}
+                        empty={tr("insufficient", lang)}
+                      />
+                      <Plot
+                        title={tr("spectrum", lang)}
+                        series={[
+                          {
+                            name: "A",
+                            color: COLORS[1],
+                            points: s.analysis.spectrum,
+                          },
+                        ]}
+                        x="f (Hz)"
+                        y={tr("relativeAmplitude", lang)}
+                        theme={theme}
+                        empty={tr("insufficient", lang)}
+                        small
+                      />
+                    </>
+                  ) : s.experiment === "centripetal" ? (
+                    tab === "analysis" ? (
+                      <>
+                        <Plot
+                          title={tr("relation", lang)}
+                          series={centripetalSeries(
+                            s.recent,
+                            s.calibration,
+                            false,
+                          )}
+                          x="ω (rad/s)"
+                          y="a (m/s²)"
+                          theme={theme}
+                          empty={tr("empty", lang)}
+                          scatter
+                        />
+                        <Plot
+                          title={tr("squareRelation", lang)}
+                          series={centripetalSeries(
+                            s.recent,
+                            s.calibration,
+                            true,
+                          )}
+                          x="ω² (rad²/s²)"
+                          y="a (m/s²)"
+                          theme={theme}
+                          empty={tr("empty", lang)}
+                          scatter
+                          small
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Plot
+                          title={tr("accelMagnitude", lang)}
+                          series={vectorSeries(
+                            s.recent,
+                            "spring",
+                            true,
+                            s.calibration,
+                          ).slice(3)}
+                          x={tr("time", lang)}
+                          y="a (m/s²)"
+                          theme={theme}
+                          empty={tr("empty", lang)}
+                        />
+                        <Plot
+                          title={tr("gyroMagnitude", lang)}
+                          series={vectorSeries(
+                            s.recent,
+                            "gyroscope",
+                            false,
+                            s.calibration,
+                          ).slice(3)}
+                          x={tr("time", lang)}
+                          y="ω (rad/s)"
+                          theme={theme}
+                          empty={tr("empty", lang)}
+                          small
+                        />
+                      </>
+                    )
+                  ) : s.experiment === "inclination" ? (
+                    <>
+                      <Plot
+                        title={tr("anglePlot", lang)}
+                        series={angleSeries(s.recent, mount, s.calibration)}
+                        x={tr("time", lang)}
+                        y="θ (°)"
+                        theme={theme}
+                        empty={tr("empty", lang)}
+                      />
+                      <div className="analysis-note">
+                        <h3>
+                          {tr("physical", lang)} / {tr("relative", lang)}
+                        </h3>
+                        <p>{tx(experiment.physics, lang)}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Plot
+                        title={tr(
+                          chartUnit.includes("rad") ? "gyroPlot" : "accelPlot",
+                          lang,
+                        )}
+                        series={basic.slice(0, 3)}
+                        x={tr("time", lang)}
+                        y={chartUnit}
+                        theme={theme}
+                        empty={tr("empty", lang)}
+                      />
+                      <Plot
+                        title={tr(
+                          chartUnit.includes("rad")
+                            ? "gyroMagnitude"
+                            : "accelMagnitude",
+                          lang,
+                        )}
+                        series={basic.slice(3)}
+                        x={tr("time", lang)}
+                        y={chartUnit}
+                        theme={theme}
+                        empty={tr("empty", lang)}
+                        small
+                      />
+                      {tab === "analysis" ? (
+                        <div className="analysis-note">
+                          <p>{tx(experiment.physics, lang)}</p>
+                          <p>
+                            {tr("count", lang)}: {s.count} ·{" "}
+                            {experiment.formula}
+                          </p>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                 </>
               )}
               <div className="data-footer">
@@ -509,7 +581,18 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                 </span>
               </div>
             </section>
-            <details className="physics panel">
+            {s.experiment === "custom" ? (
+              <TeacherConfig
+                lang={lang}
+                disabled={active || s.phase === "finished"}
+                manifest={s.manifest}
+                onLoad={(m) => lab.setManifest(m)}
+              />
+            ) : null}
+            <details
+              className="physics panel"
+              open={!!experiment.parameters?.length}
+            >
               <summary>{tr("params", lang)}</summary>
               <div>
                 <p className="formula">{experiment.formula}</p>
@@ -523,7 +606,7 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                       max="10"
                       step=".01"
                       value={s.params.length}
-                      disabled={active}
+                      disabled={active || s.phase === "finished"}
                       onChange={(e) =>
                         lab.parameter("length", Number(e.target.value))
                       }
@@ -532,6 +615,12 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                 ) : null}
               </div>
             </details>
+            <SessionCompare
+              current={s.phase === "finished" ? lab.recorder?.run : undefined}
+              lang={lang}
+              theme={theme}
+              onTrials={setTrials}
+            />
             {s.quality.length ? (
               <details className="quality-list panel">
                 <summary>
@@ -604,17 +693,19 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
             {!isSecureContext || location.hostname === "localhost" ? (
               <p className="local-warning">{tr("secure", lang)}</p>
             ) : null}
-            <div className="calibration-zone">
-              <button
-                className="button outline wide"
-                disabled={active || (!s.caps.gravity && s.mode !== "demo")}
-                onClick={() => lab.zero()}
-              >
-                <RotateCw size={17} />
-                {tr("calibrate", lang)}
-              </button>
-              <p>{tr(s.calibration ? "calibrated" : "zeroHelp", lang)}</p>
-            </div>
+            {sourceFor(s.experiment) === "motion" ? (
+              <div className="calibration-zone">
+                <button
+                  className="button outline wide"
+                  disabled={active || (!s.caps.gravity && s.mode !== "demo")}
+                  onClick={() => lab.zero()}
+                >
+                  <RotateCw size={17} />
+                  {tr("calibrate", lang)}
+                </button>
+                <p>{tr(s.calibration ? "calibrated" : "zeroHelp", lang)}</p>
+              </div>
+            ) : null}
             {s.message ? (
               <p
                 className={`notice ${s.message === "calibrated" ? "success" : ""}`}
@@ -625,23 +716,44 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
             ) : null}
             <div className="measurement-control">
               <h2>{tr("control", lang)}</h2>
+              <p className="muted">
+                {lang === "zh"
+                  ? `單輪上限 ${limitFor(s.experiment)} 秒；結束後手動下載。`
+                  : `Run limit ${limitFor(s.experiment)} s; download manually after finishing.`}
+              </p>
               <p className="phase-text">{tr(titleKey, lang)}</p>
               <button
                 className="button primary wide"
                 disabled={
-                  active ||
+                  (active &&
+                    s.phase !== "paused" &&
+                    s.message !== "pauseTimeout") ||
                   busy ||
-                  !canMeasure(s.experiment, s.caps, linear) ||
+                  !canMeasure(
+                    s.experiment,
+                    s.caps,
+                    linear,
+                    s.params.customField,
+                  ) ||
                   (s.mode === "phone" && s.link !== "connected")
                 }
                 onClick={() => {
+                  if (s.phase === "paused" || s.message === "pauseTimeout") {
+                    lab.resume();
+                    return;
+                  }
                   if (!allowClear()) return;
                   clearFile();
                   lab.start(linear);
                 }}
               >
                 <Play size={18} />
-                {tr("begin", lang)}
+                {tr(
+                  s.phase === "paused" || s.message === "pauseTimeout"
+                    ? "resume"
+                    : "begin",
+                  lang,
+                )}
               </button>
               <div className="elapsed">
                 <Clock size={18} />
@@ -649,11 +761,19 @@ function Workspace({ lab, ...prefs }: PreferencesProps & { lab: Lab }) {
                 <b>{time(s.elapsed)}</b>
               </div>
               <button
-                className="button wide"
+                className="button outline wide"
                 disabled={s.phase !== "recording" || busy}
+                onClick={() => lab.pause()}
+              >
+                <Pause size={18} />
+                {tr("pause", lang)}
+              </button>
+              <button
+                className="button wide"
+                disabled={!active || s.phase === "stopping" || busy}
                 onClick={() => void finish()}
               >
-                <Download size={18} />
+                <Square size={18} />
                 {tr("finish", lang)}
               </button>
               {s.phase === "finished" ? (
@@ -733,7 +853,7 @@ function Metric({
     </div>
   );
 }
-function generateExcel(run: Run, lang: Lang) {
+function generateExcel(run: Run, lang: Lang, trials: Trial[]) {
   return new Promise<ArrayBuffer>((resolve, reject) => {
     const worker = new Worker(
       new URL("../core/export.worker.ts", import.meta.url),
@@ -753,6 +873,6 @@ function generateExcel(run: Run, lang: Lang) {
       worker.terminate();
       reject(e);
     };
-    worker.postMessage({ run, lang });
+    worker.postMessage({ run, lang, trials });
   });
 }

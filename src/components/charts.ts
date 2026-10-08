@@ -27,7 +27,9 @@ export function vectorSeries(
     points: motion.flatMap((s, i) => {
       const v = vector(s, id, linear, c),
         point = { x: s.t, y: v ? (axis === 3 ? magnitude(v) : v[axis]) : null };
-      return i && s.t - motion[i - 1].t > Math.max(0.15, 3 * dt)
+      return i &&
+        (s.t - motion[i - 1].t > Math.max(0.15, 3 * dt) ||
+          (s.segment ?? 0) !== (motion[i - 1].segment ?? 0))
         ? [{ x: s.t - 0.00001, y: null }, point]
         : [point];
     }),
@@ -49,7 +51,9 @@ export function angleSeries(
           ? relativeAngle(angles(s.g, mount)[axis], ref[axis])
           : null;
         const point = { x: s.t, y: value };
-        return i && s.t - list[i - 1].t > 0.2
+        return i &&
+          (s.t - list[i - 1].t > 0.2 ||
+            (s.segment ?? 0) !== (list[i - 1].segment ?? 0))
           ? [{ x: s.t - 0.00001, y: null }, point]
           : [point];
       }),
@@ -60,10 +64,10 @@ export function centripetalSeries(
   c: Calibration | null,
   squared: boolean,
 ): Series[] {
-  const bins = new Map<number, { w: number[]; a: number[] }>();
+  const bins = new Map<string, { w: number[]; a: number[] }>();
   for (const s of samples) {
     if (!s.w || !s.a || s.source !== "motion") continue;
-    const k = Math.floor(s.t * 2);
+    const k = `${s.segment ?? 0}:${Math.floor(s.t * 2)}`;
     const bin = bins.get(k) ?? { w: [], a: [] };
     bin.w.push(magnitude(c ? subtract(s.w, c.bias) : s.w));
     bin.a.push(magnitude(s.a));

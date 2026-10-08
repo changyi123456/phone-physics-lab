@@ -41,7 +41,7 @@ export class Recorder {
     this.run.samples = Array.from(this.samples.values()).sort(
       (a, b) => a.seq - b.seq,
     );
-    for (const source of ["motion", "orientation"] as const) {
+    for (const source of new Set(this.run.samples.map((s) => s.source))) {
       const list = this.run.samples
         .filter((s) => s.source === source)
         .sort((a, b) => a.t - b.t);
@@ -57,6 +57,7 @@ export class Recorder {
       for (let i = 1; i < list.length; i++) {
         if (
           list[i].t - list[i - 1].t > threshold &&
+          (list[i].segment ?? 0) === (list[i - 1].segment ?? 0) &&
           !this.run.quality.some(
             (q) => q.kind === "sensorGap" && q.t === list[i].t,
           )
@@ -103,7 +104,7 @@ export class ReplayBuffer {
   add(s: Sample) {
     this.samples.push(s);
     while (
-      this.samples.length > 8192 ||
+      this.samples.length > (s.source === "audio" ? 128 : 8192) ||
       (this.samples.at(-1)?.t ?? 0) - (this.samples[0]?.t ?? 0) > 60
     ) {
       const old = this.samples.shift()!;
@@ -119,7 +120,7 @@ export class ReplayBuffer {
     const resend = force || now - this.lastSendAt > 1000;
     const out = this.samples
       .filter((s) => resend || s.seq > this.lastSent)
-      .slice(0, 256);
+      .slice(0, this.samples[0]?.source === "audio" ? 1 : 256);
     if (out.length) {
       this.lastSent = out.at(-1)!.seq;
       this.lastSendAt = now;

@@ -1,3 +1,7 @@
+import { activeDuration } from "./duration";
+import { parseManifest, type TeacherManifest } from "./manifest";
+import { advancedAnalyse, type AdvancedAnalysis } from "./advanced-analysis";
+import { parametersFor, sourceFor, limitFor } from "./advanced-registry";
 import { Link, type LinkStatus, type Wire } from "../platform/link";
 import { analyse, calibrate, sampleRate } from "./analysis";
 import { demoSample } from "./demo";
@@ -15,8 +19,18 @@ import {
   type Run,
   type Sample,
 } from "./types";
-export type Phase = "idle" | "starting" | "recording" | "stopping" | "finished";
+export type Phase =
+  | "idle"
+  | "starting"
+  | "recording"
+  | "stopping"
+  | "pausing"
+  | "paused"
+  | "resuming"
+  | "finished";
+export const isActive = (phase: Phase) => !["idle", "finished"].includes(phase);
 export interface LabSnapshot {
+  manifest: TeacherManifest | null;
   experiment: ExperimentId;
   mode: Mode;
   phase: Phase;
@@ -31,6 +45,7 @@ export interface LabSnapshot {
   count: number;
   elapsed: number;
   analysis: Analysis;
+  advanced: AdvancedAnalysis;
   quality: Run["quality"];
   complete: boolean;
   rtt: number;
@@ -48,12 +63,16 @@ export class Lab {
   private job = 0;
   private generation = 0;
   private lastAnalysis = 0;
+  private workerBusy = false;
   private lastReceived = 0;
   private demoOrigin = 0;
   private nextDemo = 0;
+  private demoNextTime = 0;
+  private demoSegment = 0;
   private finishResolve?: () => void;
   private deadline = 0;
   state: LabSnapshot = {
+    manifest: null,
     experiment: "acceleration",
     mode: "phone",
     phase: "idle",
@@ -68,19 +87,17 @@ export class Lab {
     count: 0,
     elapsed: 0,
     analysis: analyse([], "acceleration", {}, null),
+    advanced: advancedAnalyse([], "acceleration", {}, null),
     quality: [],
     complete: false,
     rtt: 0,
-    params: { length: 0.25 },
+    params: { length: 0.25, mass: 0.2 },
   };
   constructor() {
     this.link.onStatus = (s) => {
       const previous = this.state.link;
       this.patch({ link: s });
-      if (
-        this.recorder &&
-        (this.state.phase === "recording" || this.state.phase === "stopping")
-      ) {
+      if (this.recorder && isActive(this.state.phase)) {
         if (s === "disconnected")
           this.recorder.event({
             t: this.recorder.lastTime,
@@ -106,8 +123,9 @@ export class Lab {
       type: "module",
     });
     this.worker.onmessage = (e) => {
+      this.workerBusy = false;
       if (e.data.job === this.job && this.state.phase !== "finished")
-        this.patch({ analysis: e.data.result });
+        this.patch({ analysis: e.data.result, advanced: e.data.advanced });
     };
     this.timer = setInterval(() => this.tick(), 100);
   }
@@ -123,8 +141,7 @@ export class Lab {
     this.listeners.forEach((f) => f());
   }
   async pair() {
-    if (this.state.phase === "recording" || this.state.phase === "stopping")
-      return;
+    if (isActive(this.state.phase)) return;
     if (this.state.mode === "demo") this.usePhone();
     const previous = this.state.code;
     const code = await this.link.host();
@@ -137,17 +154,38 @@ export class Lab {
     }
   }
   select(id: ExperimentId) {
-    if (
-      this.state.phase === "recording" ||
-      this.state.phase === "starting" ||
-      this.state.phase === "stopping"
-    )
-      return;
+    if (isActive(this.state.phase)) return;
     this.generation++;
+    if (sourceFor(id) !== sourceFor(this.state.experiment)) {
+      this.preview = [];
+      this.lastReceived = 0;
+      this.patch({ calibration: null });
+    }
     this.recorder = undefined;
     this.exported = false;
     this.patch({
       experiment: id,
+      params: {
+        ...this.state.params,
+        ...Object.fromEntries(parametersFor(id).map((p) => [p.key, p.value])),
+      },
+      advanced: advancedAnalyse([], id, {}, null),
+      caps:
+        this.state.mode === "demo"
+          ? {
+              gravity: true,
+              linear: true,
+              gyro: true,
+              orientation: false,
+              audio: true,
+              camera: true,
+              gps: true,
+              magnetometer: true,
+              light: true,
+            }
+          : sourceFor(id) === sourceFor(this.state.experiment)
+            ? this.state.caps
+            : { ...EMPTY_CAPS },
       phase: "idle",
       recent: [],
       count: 0,
@@ -158,23 +196,26 @@ export class Lab {
     });
     this.link.send({ type: "select", experiment: id });
   }
+  setManifest(value: unknown) {
+    if (isActive(this.state.phase)) return;
+    const m = parseManifest(value);
+    this.patch({
+      manifest: m,
+      params: {
+        ...this.state.params,
+        customField: m.sensor === "gyro" ? 1 : m.sensor === "gravity" ? 2 : 0,
+        threshold: m.threshold,
+        refractory: m.refractory,
+      },
+    });
+  }
   parameter(key: string, value: number) {
-    if (
-      this.state.phase === "recording" ||
-      this.state.phase === "starting" ||
-      this.state.phase === "stopping"
-    )
-      return;
-    if (Number.isFinite(value) && value > 0 && value <= 10)
+    if (isActive(this.state.phase)) return;
+    if (Number.isFinite(value) && value >= 0 && value <= 2000)
       this.patch({ params: { ...this.state.params, [key]: value } });
   }
   demo() {
-    if (
-      this.state.phase === "recording" ||
-      this.state.phase === "starting" ||
-      this.state.phase === "stopping"
-    )
-      return;
+    if (isActive(this.state.phase)) return;
     this.reset();
     this.link.close();
     this.preview = [];
@@ -182,7 +223,17 @@ export class Lab {
       mode: "demo",
       link: "connected",
       code: "",
-      caps: { gravity: true, linear: true, gyro: true, orientation: false },
+      caps: {
+        gravity: true,
+        linear: true,
+        gyro: true,
+        orientation: false,
+        audio: true,
+        camera: true,
+        gps: true,
+        magnetometer: true,
+        light: true,
+      },
       calibration: null,
       message: "",
       phase: "idle",
@@ -201,11 +252,7 @@ export class Lab {
     });
   }
   zero() {
-    if (
-      this.state.phase === "recording" ||
-      this.state.phase === "starting" ||
-      this.state.phase === "stopping"
-    ) {
+    if (isActive(this.state.phase)) {
       this.patch({ message: "calibrationLocked" });
       return;
     }
@@ -222,7 +269,14 @@ export class Lab {
   }
   start(linear = false) {
     if (!["idle", "finished"].includes(this.state.phase)) return;
-    if (!canMeasure(this.state.experiment, this.state.caps, linear)) {
+    if (
+      !canMeasure(
+        this.state.experiment,
+        this.state.caps,
+        linear,
+        this.state.params.customField,
+      )
+    ) {
       this.patch({ message: "unsupported" });
       return;
     }
@@ -230,7 +284,11 @@ export class Lab {
       this.patch({ message: "noPermission" });
       return;
     }
-    if (this.state.mode === "phone" && Date.now() - this.lastReceived > 2000) {
+    if (
+      this.state.mode === "phone" &&
+      Date.now() - this.lastReceived >
+        (sourceFor(this.state.experiment) === "gps" ? 15000 : 2000)
+    ) {
       this.patch({ message: "stale" });
       return;
     }
@@ -241,6 +299,10 @@ export class Lab {
       startedAt: new Date().toISOString(),
       params: { ...this.state.params },
       calibration: this.state.calibration,
+      manifest:
+        this.state.experiment === "custom"
+          ? (this.state.manifest ?? undefined)
+          : undefined,
       samples: [],
       quality: [],
       complete: false,
@@ -256,12 +318,20 @@ export class Lab {
       quality: [],
       complete: false,
       message: "",
+      advanced: advancedAnalyse(
+        [],
+        run.experiment,
+        run.params,
+        run.calibration,
+      ),
       analysis: analyse([], run.experiment, run.params, run.calibration),
     });
     this.deadline = Date.now() + 10000;
     if (this.state.mode === "demo") {
       this.demoOrigin = performance.now();
       this.nextDemo = 0;
+      this.demoNextTime = 0;
+      this.demoSegment = 0;
     } else
       this.link.send({
         type: "start",
@@ -269,9 +339,40 @@ export class Lab {
         experiment: run.experiment,
       });
   }
+  pause() {
+    if (!this.recorder || this.state.phase !== "recording") return;
+    this.deadline = Date.now() + 10000;
+    this.patch({ phase: "pausing", message: "" });
+    if (this.state.mode === "demo") {
+      this.recorder.event({
+        t: (performance.now() - this.demoOrigin) / 1000,
+        kind: "measurementPause",
+      });
+      this.patch({ phase: "paused" });
+    } else this.link.send({ type: "pause", runId: this.recorder.run.id });
+  }
+  resume() {
+    if (
+      !this.recorder ||
+      !["paused", "pausing", "resuming"].includes(this.state.phase)
+    )
+      return;
+    this.deadline = Date.now() + 10000;
+    this.patch({ phase: "resuming", message: "" });
+    if (this.state.mode === "demo") {
+      this.demoNextTime = (performance.now() - this.demoOrigin) / 1000;
+      this.demoSegment++;
+      this.recorder.event({ t: this.demoNextTime, kind: "measurementResume" });
+      this.patch({ phase: "recording" });
+    } else this.link.send({ type: "resume", runId: this.recorder.run.id });
+  }
   finish() {
     if (this.state.phase === "finished") return Promise.resolve();
-    if (!this.recorder || !["recording", "starting"].includes(this.state.phase))
+    if (
+      !this.recorder ||
+      !isActive(this.state.phase) ||
+      this.state.phase === "stopping"
+    )
       return Promise.resolve();
     this.patch({ phase: "stopping" });
     this.deadline = Date.now() + 10000;
@@ -291,6 +392,17 @@ export class Lab {
     this.patch({
       phase: "finished",
       recent,
+      advanced: advancedAnalyse(
+        this.recorder.run.samples,
+        this.state.experiment,
+        this.recorder.run.params,
+        this.recorder.run.calibration,
+      ),
+      count: this.recorder.count,
+      elapsed: activeDuration(
+        this.recorder.lastTime,
+        this.recorder.run.quality,
+      ),
       analysis: analyse(
         recent,
         this.state.experiment,
@@ -304,17 +416,18 @@ export class Lab {
     this.finishResolve = undefined;
   }
   reset() {
-    if (
-      this.state.phase === "recording" ||
-      this.state.phase === "starting" ||
-      this.state.phase === "stopping"
-    )
-      return;
+    if (isActive(this.state.phase)) return;
     this.recorder = undefined;
     this.exported = false;
     this.generation++;
     this.patch({
       phase: "idle",
+      advanced: advancedAnalyse(
+        [],
+        this.state.experiment,
+        this.state.params,
+        this.state.calibration,
+      ),
       elapsed: 0,
       count: 0,
       recent: [],
@@ -338,7 +451,9 @@ export class Lab {
       this.preview.push(...samples);
       const t = this.preview.at(-1)?.t ?? 0;
       this.preview = this.preview.filter((s) => s.t >= t - 2).slice(-300);
-      const motion = samples.filter((s) => s.source === "motion").at(-1);
+      const motion = samples
+        .filter((s) => s.source === sourceFor(this.state.experiment))
+        .at(-1);
       this.lastReceived = Date.now();
       this.patch({
         caps: capabilities(this.preview),
@@ -385,6 +500,37 @@ export class Lab {
       typeof p.t === "number"
     )
       this.recorder!.event({ t: p.t, kind: p.kind });
+    if (
+      (p.type === "paused" || p.type === "resumed") &&
+      p.runId === this.recorder?.run.id &&
+      typeof p.t === "number" &&
+      Number.isFinite(p.t) &&
+      p.t >= 0
+    ) {
+      const r = this.recorder!;
+      const event = (kind: string, t: number) => {
+        if (
+          !r.run.quality.some(
+            (q) => q.kind === kind && Math.abs(q.t - t) < 0.001,
+          )
+        )
+          r.event({ kind, t });
+      };
+      if (
+        p.type === "paused" &&
+        ["pausing", "paused"].includes(this.state.phase)
+      ) {
+        event("measurementPause", p.t);
+        this.patch({ phase: "paused", message: "" });
+      }
+      if (p.type === "resumed" && this.state.phase === "resuming") {
+        if (typeof p.pauseAt === "number") event("measurementPause", p.pauseAt);
+        event("measurementResume", p.t);
+        this.patch({ phase: "recording", message: "" });
+      }
+    }
+    if (p.type === "sensor-error" && typeof p.kind === "string")
+      this.patch({ message: p.kind });
     if (p.type === "calibrate-request") this.zero();
     if (p.type === "resume-unavailable" && p.runId === this.recorder?.run.id) {
       this.recorder!.event({
@@ -410,16 +556,26 @@ export class Lab {
         const elapsed = (now - this.demoOrigin) / 1000;
         let guard = 0;
         const batch: Sample[] = [];
-        while (this.nextDemo * 0.02 <= elapsed && guard++ < 100) {
+        while (this.demoNextTime <= elapsed && guard++ < 100) {
           const seq = ++this.nextDemo;
           batch.push(
             demoSample(
               this.state.experiment,
-              (seq - 1) * 0.02,
+              this.demoNextTime,
               this.recorder.run.id,
               seq,
+              this.recorder.run.params,
             ),
           );
+          batch.at(-1)!.segment = this.demoSegment;
+          this.demoNextTime +=
+            sourceFor(this.state.experiment) === "audio"
+              ? 0.128
+              : sourceFor(this.state.experiment) === "gps"
+                ? 1
+                : sourceFor(this.state.experiment) === "camera"
+                  ? 0.1
+                  : 0.02;
         }
         this.recorder.ingest(batch);
       } else if (
@@ -431,6 +587,7 @@ export class Lab {
           now / 1000,
           "preview",
           Math.round(now) + 1,
+          this.state.params,
         );
         s.g = [0, 0, 9.81];
         s.a = [0, 0, 0];
@@ -440,36 +597,52 @@ export class Lab {
         if (this.state.phase === "idle") this.patch({ latest: s, rate: 50 });
       }
     }
-    if (
-      this.recorder &&
-      ["recording", "starting", "stopping"].includes(this.state.phase)
-    ) {
+    if (this.recorder && isActive(this.state.phase)) {
       const recent = this.recorder.recent();
       const latest =
-        recent.filter((s) => s.source === "motion").at(-1) ?? this.state.latest;
+        recent
+          .filter((s) => s.source === sourceFor(this.state.experiment))
+          .at(-1) ?? this.state.latest;
       this.patch({
         recent,
         latest,
         count: this.recorder.count,
-        elapsed: this.recorder.lastTime,
+        elapsed: activeDuration(
+          this.recorder.lastTime,
+          this.recorder.run.quality,
+        ),
         rate: sampleRate(recent),
         quality: this.recorder.run.quality.slice(),
         rtt: this.link.rtt,
       });
-      if (now - this.lastAnalysis > 600) {
+      if (now - this.lastAnalysis > 600 && !this.workerBusy) {
         this.lastAnalysis = now;
+        this.workerBusy = true;
         this.worker.postMessage({
           job: ++this.job,
           generation: this.generation,
-          samples: recent,
+          samples: this.recorder.recent(
+            sourceFor(this.state.experiment) === "audio" ? 60 : 600,
+          ),
           id: this.state.experiment,
           params: this.recorder.run.params,
           calibration: this.recorder.run.calibration,
         });
       }
-      if (this.state.phase === "recording" && this.recorder.lastTime >= 600) {
+      if (
+        this.state.phase === "recording" &&
+        this.state.elapsed >= limitFor(this.state.experiment)
+      ) {
         this.patch({ message: "runLimit" });
         void this.finish();
+      }
+      if (
+        ["pausing", "resuming"].includes(this.state.phase) &&
+        this.deadline &&
+        Date.now() > this.deadline
+      ) {
+        this.deadline = 0;
+        this.patch({ message: "pauseTimeout" });
       }
       if (this.state.phase === "starting" && Date.now() > this.deadline) {
         this.recorder.event({ t: 0, kind: "startTimeout" });

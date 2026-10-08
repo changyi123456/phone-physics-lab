@@ -1,7 +1,8 @@
+import { sourceFor } from "../core/advanced-registry";
 import { useEffect, useRef, useState } from "react";
 import { Check, Smartphone, RotateCw, RefreshCw } from "lucide-react";
 import { Link, type LinkStatus, type Wire } from "../platform/link";
-import { Sensors } from "../platform/sensors";
+import { SourceHub as Sensors } from "../platform/source-hub";
 import { ReplayBuffer } from "../core/recording";
 import { sampleRate } from "../core/analysis";
 import { getExperiment, experiments } from "../core/registry";
@@ -46,6 +47,8 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       lastPreview = 0,
       lastSample = 0,
       force = false;
+    let selected: ExperimentId = "acceleration";
+    let pausing = false;
     const flush = () => {
       if (!link.conn?.open) return;
       if (id || stopping) {
@@ -59,6 +62,15 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
             drop: buffer.droppedThrough,
           });
         if (
+          pausing &&
+          id &&
+          !buffer.samples.length &&
+          link.send({ type: "paused", runId: id, ...sensors.checkpoint })
+        ) {
+          pausing = false;
+          set((v) => ({ ...v, phase: "paused" }));
+        }
+        if (
           stopping &&
           !buffer.samples.length &&
           link.send({ type: "stopped", runId: stopping, seq: finalSeq })
@@ -68,7 +80,13 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
         }
       }
       if (preview.length && performance.now() - lastPreview > 100) {
-        link.send({ type: "preview", samples: preview.slice(-256) });
+        link.send({
+          type: "preview",
+          samples:
+            sensors.source === "audio"
+              ? preview.slice(-1)
+              : preview.slice(-256),
+        });
         preview = [];
         lastPreview = performance.now();
       }
@@ -78,10 +96,15 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       recent.push(sample);
       recent = recent.slice(-150);
       if (sample.runId === "preview") preview.push(sample);
-      else buffer.add(sample);
+      else {
+        buffer.add(sample);
+        if (sample.source === "audio") flush();
+      }
     };
     sensors.onEvent = (kind) => {
       link.send({ type: "status", hidden: document.hidden });
+      if (!["background", "foreground"].includes(kind))
+        link.send({ type: "sensor-error", kind });
       if (id || stopping)
         link.send({
           type: "quality",
@@ -89,33 +112,82 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           t: Math.max(0, (performance.now() - sensors.origin) / 1000),
           kind,
         });
-      set((v) => ({ ...v, message: document.hidden ? "pauseSensor" : "" }));
+      set((v) => ({
+        ...v,
+        message: !["background", "foreground"].includes(kind)
+          ? kind
+          : document.hidden
+            ? "pauseSensor"
+            : "",
+        ...(["denied", "sourceUnsupported", "audioSuspended"].includes(kind)
+          ? { enabled: false }
+          : {}),
+      }));
     };
     link.onStatus = (status) => set((v) => ({ ...v, link: status }));
     link.onMessage = (p: Wire) => {
       if (p.type === "welcome") {
-        if (experiments.some((e) => e.id === p.experiment))
+        if (experiments.some((e) => e.id === p.experiment)) {
+          selected = p.experiment as ExperimentId;
+          if (sensors.configure(selected))
+            set((v) => ({
+              ...v,
+              enabled: false,
+              calibrated: false,
+              phase: "idle",
+            }));
           set((v) => ({
             ...v,
             experiment: p.experiment as ExperimentId,
             calibrated: !!p.calibrated,
           }));
-        if (
-          p.runId &&
-          (p.phase === "recording" ||
-            p.phase === "stopping" ||
-            p.phase === "starting")
-        ) {
+        }
+        if (p.runId && !["idle", "finished"].includes(String(p.phase))) {
           if (p.runId === id || p.runId === stopping) {
             if (typeof p.ack === "number") buffer.acknowledge(p.ack);
             force = true;
             flush();
-            if (id) link.send({ type: "started", runId: id });
+            if (id) {
+              if (["pausing", "paused"].includes(String(p.phase))) {
+                sensors.pause();
+                pausing = true;
+                flush();
+              } else if (
+                p.phase === "resuming" ||
+                (p.phase === "recording" && sensors.paused)
+              ) {
+                link.send({ type: "resumed", runId: id, ...sensors.resume() });
+                set((v) => ({ ...v, phase: "recording" }));
+              } else if (p.phase === "stopping") {
+                finalSeq = sensors.stop();
+                stopping = id;
+                id = "";
+                pausing = false;
+                flush();
+              } else link.send({ type: "started", runId: id });
+            }
           } else link.send({ type: "resume-unavailable", runId: p.runId });
         }
       }
-      if (p.type === "select" && experiments.some((e) => e.id === p.experiment))
-        set((v) => ({ ...v, experiment: p.experiment as ExperimentId }));
+      if (
+        p.type === "select" &&
+        experiments.some((e) => e.id === p.experiment)
+      ) {
+        selected = p.experiment as ExperimentId;
+        const changed = sensors.configure(selected);
+        set((v) => ({
+          ...v,
+          experiment: selected,
+          ...(changed
+            ? {
+                enabled: false,
+                calibrated: false,
+                phase: "idle",
+                message: "sourceChanged",
+              }
+            : {}),
+        }));
+      }
       if (
         p.type === "start" &&
         experiments.some((e) => e.id === p.experiment) &&
@@ -139,7 +211,20 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
         }));
         link.send({ type: "started", runId: id });
       }
+      if (p.type === "pause" && p.runId === id) {
+        sensors.pause();
+        pausing = true;
+        force = true;
+        set((v) => ({ ...v, phase: "pausePending" }));
+        flush();
+      }
+      if (p.type === "resume" && p.runId === id) {
+        pausing = false;
+        link.send({ type: "resumed", runId: id, ...sensors.resume() });
+        set((v) => ({ ...v, phase: "recording", message: "" }));
+      }
       if (p.type === "stop" && p.runId === id) {
+        pausing = false;
         finalSeq = sensors.stop();
         stopping = id;
         id = "";
@@ -169,7 +254,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
         ...v,
         rate: Date.now() - lastSample < 1500 ? sampleRate(recent) : 0,
         message:
-          Date.now() - lastSample < 1500
+          sensors.paused || Date.now() - lastSample < 1500
             ? v.message === "noSensor"
               ? ""
               : v.message
@@ -194,14 +279,41 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
     } catch (error) {
       set((v) => ({
         ...v,
-        message: error instanceof Error ? error.message : "denied",
+        message:
+          error instanceof Error &&
+          ["secure", "sourceUnsupported", "sourceChanged"].includes(
+            error.message,
+          )
+            ? error.message
+            : "denied",
       }));
+      engine.current?.link.send({
+        type: "sensor-error",
+        kind:
+          error instanceof Error &&
+          ["secure", "sourceUnsupported", "sourceChanged"].includes(
+            error.message,
+          )
+            ? error.message
+            : "denied",
+      });
     } finally {
       set((v) => ({ ...v, requesting: false }));
     }
   };
   const experiment = getExperiment(s.experiment);
-  const active = s.phase === "recording" || s.phase === "stopPending";
+  const active = !["idle", "finished"].includes(s.phase);
+  const source = sourceFor(s.experiment);
+  const help =
+    source === "audio"
+      ? "audioHelp"
+      : source === "camera"
+        ? "cameraHelp"
+        : source === "gps"
+          ? "gpsHelp"
+          : source === "motion"
+            ? "safariHelp"
+            : "genericHelp";
   return (
     <main className="phone-shell">
       <header className="phone-header">
@@ -241,7 +353,10 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
               <p>
                 {body === "position"
                   ? tx(experiment.position, lang)
-                  : tr(body as "safariHelp", lang)}
+                  : tr(
+                      body === "safariHelp" ? help : (body as "safariHelp"),
+                      lang,
+                    )}
               </p>
             </div>
           </div>
@@ -249,7 +364,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       </section>
       <button
         className="button primary wide phone-enable"
-        disabled={s.requesting || s.enabled}
+        disabled={s.requesting || s.enabled || active}
         onClick={() => void enable()}
       >
         {tr(
@@ -257,18 +372,41 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           lang,
         )}
       </button>
-      <p className="phone-note">{tr("safariHelp", lang)}</p>
-      <button
-        className="button outline wide phone-zero"
-        disabled={!s.enabled || s.link !== "connected" || active}
-        onClick={() => engine.current?.link.send({ type: "calibrate-request" })}
-      >
-        <RotateCw size={19} />
-        {tr("zero", lang)}
-      </button>
-      <p className="phone-note">
-        {tr(s.calibrated ? "calibrated" : "zeroHelp", lang)}
-      </p>
+      <p className="phone-note">{tr(help, lang)}</p>
+      {s.enabled && engine.current?.sensors.video ? (
+        <div
+          className="camera-preview"
+          ref={(element) => {
+            const video = engine.current?.sensors.video;
+            if (element && video && !element.contains(video))
+              element.append(video);
+          }}
+        />
+      ) : null}
+      {source === "motion" ? (
+        <>
+          <button
+            className="button outline wide phone-zero"
+            disabled={
+              !s.enabled ||
+              s.link !== "connected" ||
+              active ||
+              !["motion", "orientation"].includes(
+                engine.current?.sensors.source ?? "motion",
+              )
+            }
+            onClick={() =>
+              engine.current?.link.send({ type: "calibrate-request" })
+            }
+          >
+            <RotateCw size={19} />
+            {tr("zero", lang)}
+          </button>
+          <p className="phone-note">
+            {tr(s.calibrated ? "calibrated" : "zeroHelp", lang)}
+          </p>
+        </>
+      ) : null}
       {s.message ? (
         <p className="notice" role="status">
           {qualityText(s.message, lang)}

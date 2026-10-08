@@ -19,7 +19,10 @@ const variance = (a: number[]) => {
   return mean(a.map((v) => (v - m) ** 2));
 };
 export function sampleRate(samples: Sample[]) {
-  const m = samples.filter((s) => s.source === "motion");
+  const source = samples.find((s) => s.source !== "orientation")?.source;
+  const audio = samples.filter((s) => s.source === "audio").at(-1);
+  if (audio?.data?.rate) return audio.data.rate;
+  const m = samples.filter((s) => s.source === source);
   const dt = m
     .slice(1)
     .map((s, i) => s.t - m[i].t)
@@ -101,7 +104,11 @@ function latestUniform(
   if (!dt || dt > 0.1) return null;
   let cut = 0;
   for (let i = 1; i < data.length; i++)
-    if (data[i].t - data[i - 1].t > 3 * dt) cut = i;
+    if (
+      data[i].t - data[i - 1].t > 3 * dt ||
+      (data[i].segment ?? 0) !== (data[i - 1].segment ?? 0)
+    )
+      cut = i;
   data = data.slice(cut);
   if (data.length < 30 || data.at(-1)!.t - data[0].t < 2) return null;
   const end = data.at(-1)!.t,
