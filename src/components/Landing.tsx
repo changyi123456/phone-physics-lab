@@ -10,7 +10,8 @@ import {
 import { experiments } from "../core/registry";
 import { tx, type Text } from "../core/i18n";
 import type { ExperimentId } from "../core/types";
-import { Preferences, type PreferencesProps } from "./Preferences";
+import type { PreferencesProps } from "./Preferences";
+import { PublicHeader, publicPageUrl } from "./PublicHeader";
 import { ExperimentIcon } from "./ExperimentIcon";
 
 const featured: ExperimentId[] = [
@@ -76,27 +77,7 @@ export function Landing({
       <a className="skip-link" href="#catalog">
         {lang === "zh" ? "跳至實驗目錄" : "Skip to experiments"}
       </a>
-      <header className="landing-header page-width">
-        <a
-          className="landing-brand"
-          href={location.pathname}
-          aria-label="Phylab"
-        >
-          <span className="brand-wordmark">Phylab</span>
-          <span>
-            {lang === "zh"
-              ? "手機感測・電腦實驗"
-              : "Phone sensing · Desktop experiments"}
-          </span>
-        </a>
-        <nav aria-label={lang === "zh" ? "入口導覽" : "Home navigation"}>
-          <a href="#catalog">{lang === "zh" ? "實驗目錄" : "Experiments"}</a>
-          <a href="#how-it-works">
-            {lang === "zh" ? "使用方式" : "How it works"}
-          </a>
-        </nav>
-        <Preferences {...prefs} />
-      </header>
+      <PublicHeader {...prefs} />
       <main>
         <section className="hero page-width" aria-labelledby="hero-title">
           <div className="hero-copy">
@@ -364,11 +345,16 @@ export function Landing({
               : "Phone sensing · Desktop experiments"}
           </span>
         </div>
-        <p>
-          {lang === "zh"
-            ? "獨立開發的教學工具，非官方 phyphox 網頁版。"
-            : "An independent teaching tool, unaffiliated with phyphox."}
-        </p>
+        <div className="footer-meta">
+          <p>
+            {lang === "zh"
+              ? "獨立開發的教學工具，非官方 phyphox 網頁版。"
+              : "An independent teaching tool, unaffiliated with phyphox."}
+          </p>
+          <a href={publicPageUrl("developer", prefs)}>
+            {lang === "zh" ? "開發者介紹" : "Meet the developer"}
+          </a>
+        </div>
       </footer>
     </div>
   );

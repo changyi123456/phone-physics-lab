@@ -16,13 +16,25 @@ const Desktop = lazy(() =>
 const Phone = lazy(() =>
   import("./components/Phone").then((m) => ({ default: m.Phone })),
 );
+const Developer = lazy(() =>
+  import("./components/Developer").then((m) => ({ default: m.Developer })),
+);
 const params = new URLSearchParams(location.search);
-type Route = { view: "home" | "lab"; experiment: ExperimentId; demo: boolean };
+type Route = {
+  view: "home" | "lab" | "developer";
+  experiment: ExperimentId;
+  demo: boolean;
+};
 function readRoute(): Route {
   const query = new URLSearchParams(location.search);
   const id = query.get("experiment");
   return {
-    view: query.get("view") === "lab" ? "lab" : "home",
+    view:
+      query.get("view") === "lab"
+        ? "lab"
+        : query.get("view") === "developer"
+          ? "developer"
+          : "home",
     experiment: experiments.find((e) => e.id === id)?.id ?? "acceleration",
     demo: query.get("mode") === "demo",
   };
@@ -32,6 +44,7 @@ function routeUrl(route: Route) {
   url.hash = "";
   for (const key of ["view", "experiment", "mode"])
     url.searchParams.delete(key);
+  if (route.view === "developer") url.searchParams.set("view", "developer");
   if (route.view === "lab") {
     url.searchParams.set("view", "lab");
     url.searchParams.set("experiment", route.experiment);
@@ -78,7 +91,7 @@ export default function App() {
     url.searchParams.set("lang", prefs.lang);
     url.searchParams.set("theme", prefs.theme);
     history.replaceState(null, "", url);
-    document.title = `${code ? (prefs.lang === "zh" ? "手機感測器" : "Phone sensor") : route.view === "lab" ? tx(getExperiment(route.experiment).name, prefs.lang) : prefs.lang === "zh" ? "手機感測・電腦實驗" : "Phone sensing · Desktop experiments"} · Phylab`;
+    document.title = `${code ? (prefs.lang === "zh" ? "手機感測器" : "Phone sensor") : route.view === "lab" ? tx(getExperiment(route.experiment).name, prefs.lang) : route.view === "developer" ? (prefs.lang === "zh" ? "開發者介紹" : "Meet the developer") : prefs.lang === "zh" ? "手機感測・電腦實驗" : "Phone sensing · Desktop experiments"} · Phylab`;
     document
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute("content", prefs.theme === "dark" ? "#101c1c" : "#ffffff");
@@ -120,6 +133,12 @@ export default function App() {
     return (
       <Suspense fallback={<div className="boot">Phylab</div>}>
         <Phone code={code} {...common} />
+      </Suspense>
+    );
+  if (route.view === "developer")
+    return (
+      <Suspense fallback={<div className="boot">Phylab</div>}>
+        <Developer {...common} />
       </Suspense>
     );
   if (route.view === "home")

@@ -65,3 +65,11 @@ Hero 插圖：手機＋單擺＋概念波形；圖內沒有假測量數字。圖
 44項計算與匯出測試通過；完整瀏覽器流程驗證入口8／22、分類搜尋、中英、示範開始→暫停凍結→繼續→結束不下載→手動真實XLSX、活動中返回阻擋、未匯出離開取消、真PeerJS配對與模組同步。讀值50Hz→20ms、SI有效質量輸入及展開單位表的窄螢幕驗證通過。內建瀏覽器先做可見互動；confirm取消與Blob下載在內建工具不可靠，這兩項以已安裝的隔離Playwright／Chromium補驗。實體iPhone感測校驗仍待實機。
 
 教師單位與時間說明規範另見 [measurement-audit.md](measurement-audit.md)。新增實驗必須同步更新入口的 `unitsFor`／`timingGuideFor`、實驗頁以及Excel；量測數值不得用主視覺素材替代。
+
+## 開發者介紹頁
+
+入口導覽列與頁尾提供「開發者介紹」原生連結。獨立路徑為 `?view=developer`，相容 GitHub Pages 的直接分享與重新整理；網址保留 `lang`／`theme`。本頁與入口共用 `PublicHeader`，`Developer` 採延遲載入，量測頁的狀態與離開保護沿用既有邏輯。
+
+內容依 [AI 物理教室作者頁](https://aiphysicsteacher.netlify.app/#author) 與 [TRAIL 開發者介紹](https://trailassessment.com/about) 整理，資料日期 2026-10-08。包括江長屹／Chang-Yi Chiang 的教育與教學背景、Phylab 理念、相關作品及公開教學聯絡方式。作者插圖引用 TRAIL 原圖，以 CSS 做上半身裁切並註明來源，不生成替代肖像。中興高中英文校名依 [學校官方網站](https://www.chsh.ntct.edu.tw/) 使用 National Chung Hsing Senior High School。
+
+本頁沿用白底、青綠與開放列表；個人介紹雙欄、學歷列表、三欄理念、作品連結、資料參考依序呈現。手機版堆疊，入口導覽維持可見；亮暗與中英延續共用偏好。後續更新履歷時應同步兩種語言、資料日期與參考來源，不自行推算年資或增加未提供的頭銜。
