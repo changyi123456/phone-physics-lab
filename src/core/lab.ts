@@ -43,6 +43,7 @@ export interface LabSnapshot {
   mode: Mode;
   phase: Phase;
   link: LinkStatus;
+  linkIssue: string;
   code: string;
   caps: Capabilities;
   calibration: Calibration | null;
@@ -89,6 +90,7 @@ export class Lab {
     mode: "phone",
     phase: "idle",
     link: "waiting",
+    linkIssue: "",
     code: "",
     caps: { ...EMPTY_CAPS },
     calibration: null,
@@ -110,7 +112,12 @@ export class Lab {
   constructor() {
     this.link.onStatus = (s) => {
       const previous = this.state.link;
-      this.patch({ link: s });
+      if (s === "connected" && previous !== "connected" && !isActive(this.state.phase)) {
+        this.preview = [];
+        this.lastReceived = 0;
+        this.patch({ caps: { ...EMPTY_CAPS } });
+      }
+      this.patch({ link: s, linkIssue: this.link.issue });
       if (this.recorder && isActive(this.state.phase)) {
         if (s === "disconnected")
           this.recorder.event({
@@ -585,7 +592,11 @@ export class Lab {
       }
     }
     if (p.type === "sensor-error" && typeof p.kind === "string")
-      this.patch({ message: p.kind });
+      this.patch({
+        message: p.kind,
+        ...(["noSensor", "denied", "sourceUnsupported"].includes(p.kind)
+          ? { caps: { ...EMPTY_CAPS } } : {}),
+      });
     if (p.type === "calibrate-request") this.zero();
     if (p.type === "resume-unavailable" && p.runId === this.recorder?.run.id) {
       this.recorder!.event({

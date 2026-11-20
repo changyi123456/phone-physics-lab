@@ -2,6 +2,16 @@ import type { Sample, Vec } from "../core/types";
 interface PermissionSource {
   requestPermission?: () => Promise<string>;
 }
+interface MotionSensor extends EventTarget {
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  timestamp: number | null;
+  start(): void;
+  stop(): void;
+}
+type MotionSensorConstructor = new (options: { frequency: number }) => MotionSensor;
+type MotionField = "g" | "a" | "w";
 const read = (
   a: number | null | undefined,
   b: number | null | undefined,
@@ -23,7 +33,7 @@ export async function requestAccess(
   const ask = (s: PermissionSource | undefined) => {
     if (!s) return Promise.resolve(false);
     try {
-      return s.requestPermission
+      return typeof s.requestPermission === "function"
         ? s.requestPermission().then(
             (v) => v === "granted",
             () => false,
@@ -49,6 +59,11 @@ export class Sensors {
   checkpoint = { seq: 0, t: 0, segment: 0, pauseAt: 0 };
   private previewSeq = 0;
   private wake?: WakeLockSentinel;
+  private fallbackTimer?: ReturnType<typeof setTimeout>;
+  private dataTimer?: ReturnType<typeof setTimeout>;
+  private receivedNative = false;
+  private fallbackSensors: MotionSensor[] = [];
+  private receivedMotion = false;
   async enable() {
     if (!isSecureContext) throw new Error("secure");
     const m = window.DeviceMotionEvent as unknown as
@@ -58,13 +73,25 @@ export class Sensors {
         | PermissionSource
         | undefined;
     const allowed = await requestAccess(m, o);
-    if (!allowed.motion && !allowed.orientation) throw new Error("denied");
+    if (!allowed.motion && !allowed.orientation && !("Accelerometer" in window))
+      throw new Error("denied");
     this.remove();
+    this.receivedNative = false;
+    this.receivedMotion = false;
     if (allowed.motion) window.addEventListener("devicemotion", this.motion);
     if (allowed.orientation)
       window.addEventListener("deviceorientation", this.orientation);
     document.addEventListener("visibilitychange", this.visibility);
     this.enabled = true;
+    // Android browsers can expose Generic Sensor readings when motion events
+    // are absent. Never synthesize sensor values.
+    this.fallbackTimer = setTimeout(() => this.startFallback(), 1500);
+    this.dataTimer = setTimeout(() => {
+      if (this.receivedMotion) return;
+      this.enabled = false;
+      this.remove();
+      this.onEvent?.("noSensor");
+    }, 6000);
     void this.keepAwake();
     return allowed;
   }
@@ -137,15 +164,16 @@ export class Sensors {
   }
   private motion = (e: DeviceMotionEvent) => {
     if (document.hidden) return;
+    const g = read(e.accelerationIncludingGravity?.x, e.accelerationIncludingGravity?.y, e.accelerationIncludingGravity?.z);
+    const a = read(e.acceleration?.x, e.acceleration?.y, e.acceleration?.z);
+    const rot = rotationToXYZ(e.rotationRate);
+    if (!g && !a && !rot.w) return;
+    this.receivedNative = true;
+    this.receivedMotion = true;
     const s = this.sample("motion", e);
     if (!s) return;
-    s.g = read(
-      e.accelerationIncludingGravity?.x,
-      e.accelerationIncludingGravity?.y,
-      e.accelerationIncludingGravity?.z,
-    );
-    s.a = read(e.acceleration?.x, e.acceleration?.y, e.acceleration?.z);
-    const rot = rotationToXYZ(e.rotationRate);
+    s.g = g;
+    s.a = a;
     s.w = rot.w;
     s.rawRotation = rot.raw;
     if (Number.isFinite(e.interval) && e.interval > 0)
@@ -154,11 +182,59 @@ export class Sensors {
   };
   private orientation = (e: DeviceOrientationEvent) => {
     if (document.hidden) return;
+    const angles = read(e.alpha, e.beta, e.gamma);
+    if (!angles) return;
     const s = this.sample("orientation", e);
     if (!s) return;
-    s.angles = read(e.alpha, e.beta, e.gamma);
+    s.angles = angles;
     this.onSample?.(s);
   };
+  private startFallback() {
+    if (this.receivedNative) return;
+    const constructors = window as unknown as Record<string, MotionSensorConstructor | undefined>;
+    const latest: Partial<Record<MotionField, { values: Vec; time: number }>> = {};
+    for (const [field, name] of [
+      ["g", "Accelerometer"],
+      ["a", "LinearAccelerationSensor"],
+      ["w", "Gyroscope"],
+    ] as const) {
+      const Constructor = constructors[name];
+      if (!Constructor) continue;
+      try {
+        const sensor = new Constructor({ frequency: 60 });
+        this.fallbackSensors.push(sensor);
+        sensor.addEventListener("reading", () => {
+          if (!this.enabled || document.hidden || this.receivedNative) return;
+          const values = read(sensor.x, sensor.y, sensor.z);
+          if (!values || sensor.timestamp === null || !Number.isFinite(sensor.timestamp)) return;
+          latest[field] = { values, time: sensor.timestamp };
+          const fresh = (["g", "a", "w"] as const).filter((key) => {
+            const value = latest[key];
+            return value && Math.abs(sensor.timestamp! - value.time) < 100 &&
+              (!this.runId || value.time >= this.activeFrom);
+          });
+          // Emit at one source's cadence, rather than tripling the reported Hz.
+          if (fresh[0] !== field) return;
+          this.receivedMotion = true;
+          const s = this.sample("motion", { timeStamp: sensor.timestamp });
+          if (!s) return;
+          s.data = { values: [], settings: { provider: "Generic Sensor API" } };
+          for (const key of fresh) {
+            s[key] = latest[key]!.values;
+            s.data.settings![`${key}TimestampMs`] = latest[key]!.time;
+          }
+          // Generic Gyroscope is already rad/s. rawRotation stays null because
+          // no original DeviceMotion deg/s values were provided by this API.
+          this.onSample?.(s);
+        });
+        sensor.addEventListener("error", () => sensor.stop());
+        sensor.start();
+      } catch {
+        // Optional sensors may be absent or blocked. The data watchdog reports
+        // failure only if no usable motion source was received.
+      }
+    }
+  }
   private visibility = () => {
     this.onEvent?.(document.hidden ? "background" : "foreground");
     if (!document.hidden) void this.keepAwake();
@@ -169,11 +245,16 @@ export class Sensors {
     } catch {}
   }
   private remove() {
+    clearTimeout(this.fallbackTimer);
+    clearTimeout(this.dataTimer);
+    this.fallbackSensors.forEach((sensor) => sensor.stop());
+    this.fallbackSensors = [];
     window.removeEventListener("devicemotion", this.motion);
     window.removeEventListener("deviceorientation", this.orientation);
     document.removeEventListener("visibilitychange", this.visibility);
   }
   dispose() {
+    this.enabled = false;
     this.remove();
     void this.wake?.release();
   }

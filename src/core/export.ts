@@ -253,6 +253,7 @@ export async function buildWorkbook(
       ...fields,
       zh ? "分段" : "Segment",
       zh ? "硬體回報間隔 (ms)" : "Reported hardware interval (ms)",
+      zh ? "感測來源設定 JSON" : "Sensor settings JSON",
     ],
     ...run.samples
       .filter((s) => s.source === "motion")
@@ -267,6 +268,7 @@ export async function buildWorkbook(
         s.screen,
         s.segment ?? 0,
         s.sensorIntervalMs ?? null,
+        s.data?.settings ? JSON.stringify(s.data.settings) : null,
       ]),
   ]);
   const orient = run.samples.filter((s) => s.source === "orientation");

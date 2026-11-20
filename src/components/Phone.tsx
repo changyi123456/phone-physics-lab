@@ -17,12 +17,14 @@ import { Link, type LinkStatus, type Wire } from "../platform/link";
 import { SourceHub as Sensors } from "../platform/source-hub";
 import { ReplayBuffer } from "../core/recording";
 import { sampleRate } from "../core/analysis";
-import { getExperiment, experiments } from "../core/registry";
+import { getExperiment, experiments, canMeasure } from "../core/registry";
 import { qualityText, tr, tx } from "../core/i18n";
-import type { ExperimentId, Sample } from "../core/types";
+import { capabilities, type ExperimentId, type Sample } from "../core/types";
 import { Preferences, type PreferencesProps } from "./Preferences";
 interface PhoneState {
   link: LinkStatus;
+  linkIssue: string;
+  dataReady: boolean;
   enabled: boolean;
   requesting: boolean;
   rate: number;
@@ -35,6 +37,8 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
   const { lang } = prefs;
   const [s, set] = useState<PhoneState>({
     link: "connecting",
+    linkIssue: "",
+    dataReady: false,
     enabled: false,
     requesting: false,
     rate: 0,
@@ -134,12 +138,13 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           : document.hidden
             ? "pauseSensor"
             : "",
-        ...(["denied", "sourceUnsupported", "audioSuspended"].includes(kind)
-          ? { enabled: false }
+        ...(["denied", "sourceUnsupported", "audioSuspended", "noSensor"].includes(kind)
+          ? { enabled: false, dataReady: false }
           : {}),
       }));
     };
-    link.onStatus = (status) => set((v) => ({ ...v, link: status }));
+    link.onStatus = (status) =>
+      set((v) => ({ ...v, link: status, linkIssue: link.issue }));
     link.onMessage = (p: Wire) => {
       if (p.type === "welcome") {
         if (experiments.some((e) => e.id === p.experiment)) {
@@ -190,12 +195,18 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       ) {
         selected = p.experiment as ExperimentId;
         const changed = sensors.configure(selected);
+        if (changed) {
+          recent = [];
+          preview = [];
+          lastSample = 0;
+        }
         set((v) => ({
           ...v,
           experiment: selected,
           ...(changed
             ? {
                 enabled: false,
+                dataReady: false,
                 calibrated: false,
                 phase: "idle",
                 message: "sourceChanged",
@@ -268,12 +279,14 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       set((v) => ({
         ...v,
         rate: Date.now() - lastSample < 1500 ? sampleRate(recent) : 0,
+        dataReady:
+          Date.now() - lastSample < 1500 && canMeasure(selected, capabilities(recent)),
         message:
           sensors.paused || Date.now() - lastSample < 1500
             ? v.message === "noSensor"
               ? ""
               : v.message
-            : sensors.enabled
+            : sensors.enabled && (lastSample > 0 || sensors.source !== "motion")
               ? "noSensor"
               : v.message,
       }));
@@ -296,7 +309,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
         ...v,
         message:
           error instanceof Error &&
-          ["secure", "sourceUnsupported", "sourceChanged"].includes(
+          ["secure", "sourceUnsupported", "sourceChanged", "noSensor"].includes(
             error.message,
           )
             ? error.message
@@ -306,7 +319,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
         type: "sensor-error",
         kind:
           error instanceof Error &&
-          ["secure", "sourceUnsupported", "sourceChanged"].includes(
+          ["secure", "sourceUnsupported", "sourceChanged", "noSensor"].includes(
             error.message,
           )
             ? error.message
@@ -349,6 +362,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
         <div>
           <h2>{tr(s.link === "connected" ? "connected" : "unpaired", lang)}</h2>
           {s.link !== "connected" ? <p>{tr(s.link, lang)}</p> : null}
+          {s.linkIssue ? <p role="status">{qualityText(s.linkIssue, lang)}</p> : null}
           <p className="current-experiment">
             {tr("current", lang)}: <strong>{tx(experiment.name, lang)}</strong>
           </p>
@@ -451,6 +465,10 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       ) : null}
       <dl className="phone-status">
         <div>
+          <dt>{tr("sensorData", lang)}</dt>
+          <dd>{tr(s.dataReady ? "dataReady" : "waitingForReadings", lang)}</dd>
+        </div>
+        <div>
           <dt>
             <ShieldCheck size={17} />
             {tr("permission", lang)}
@@ -472,6 +490,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           <dd>{qualityText(s.phase, lang)}</dd>
         </div>
       </dl>
+      {source === "motion" && !s.dataReady ? <p className="phone-note">{tr("motionHelp", lang)}</p> : null}
       <details className="sensor-details">
         <summary>
           {lang === "zh"

@@ -730,6 +730,7 @@ function Workspace({
                 {s.mode === "phone" ? <p>{tr("scanHelp", lang)}</p> : null}
               </div>
             </div>
+            {s.mode === "phone" && s.linkIssue ? <p className="notice" role="status">{qualityText(s.linkIssue, lang)}</p> : null}
             {s.mode === "phone" ? (
               <>
                 <div className="qr-stage">
@@ -852,6 +853,9 @@ function Workspace({
                   lang,
                 )}
               </button>
+              {s.mode === "phone" && s.link === "connected" && !canMeasure(s.experiment, s.caps, linear, s.params.customField) ? (
+                <p className="notice" role="status">{tr("waitingForSensor", lang)}</p>
+              ) : null}
               <div className="transport-actions">
                 <button
                   className="button outline wide"

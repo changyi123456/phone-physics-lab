@@ -2,7 +2,7 @@
 
 Phylab = Physics + Laboratory。入口頁提供實驗分類、搜尋與示範；進入實驗台後再配對手機。完整設計與後續擴充規範見 [design-system.md](docs/design-system.md)。保留既有 GitHub repo 與公開網址。
 
-全前端、高中課堂手機感測平台。每台電腦獨立配對一支手機，量測結束後手動下載 Excel。提供繁中／英文與亮色／暗色；只記 UI 偏好，量測留在本輪記憶體。
+全前端、高中課堂手機感測平台。每台電腦獨立配對一支手機，量測結束後手動下載 Excel。提供繁中／英文與亮色／暗色；記住 UI 偏好與隨機瀏覽器配對身分，量測留在本輪記憶體。
 
 試用網站：https://changyi123456.github.io/phone-physics-lab/
 原始碼：https://github.com/changyi123456/phone-physics-lab
@@ -11,7 +11,11 @@ Phylab = Physics + Laboratory。入口頁提供實驗分類、搜尋與示範；
 
 公開 HTTPS 網站開在電腦 → 選實驗 → 手機掃 QR → 按啟用動作感測並允許 → 穩定擺放後校準 → 電腦開始量測 → 結束 → 檢查結果 → 手動下載 Excel。
 
-手機維持頁面前景、不要鎖屏；可以用不同 Wi-Fi／行動網路。配對依賴 PeerJS 公共信令與 WebRTC STUN/TURN，受限校園網路需實測。不要在手機使用電腦的 localhost 地址；一般 LAN HTTP 頁面無法提供所需安全感測上下文。
+手機維持頁面前景、不要鎖屏。配對依賴 PeerJS 公共信令與 WebRTC，使用 Cloudflare／Google 的 STUN。建議手機和電腦使用同一個 Wi-Fi 或手機熱點；不同網路能否直連取決於 NAT 與防火牆，不能保證。PeerJS 已停止免費 TURN 服務，本版沒有可用的 TURN 中繼，受限校園／行動網路需另外架設或接入 TURN。不要在手機使用電腦的 localhost 地址；一般 LAN HTTP 頁面無法提供所需安全感測上下文。
+
+Android 請使用 Chrome，檢查「設定 → 網站設定 → 動作感應器」已允許；iPhone 使用 Safari 並允許動作與方向。請從 LINE 等 App 改用外部瀏覽器。手機的「已啟用」表示已啟用感測存取，「資料已就緒」才表示已收到目前實驗所需的欄位。電腦只有在收到必要欄位後才允許開始；切成線性加速度時也需要對應資料。
+
+沒有有效動作事件時，會在 1.5 秒後嘗試 Android Chrome 的 Accelerometer／LinearAccelerationSensor／Gyroscope。備援以單一來源節奏輸出，不將三個 API 的事件數相加當作取樣率；只附上相距 100 ms 內的原始欄位，並在封包與 Excel 的感測來源設定中保留各欄位的實際時間戳。6 秒仍無有效動作資料會顯示權限檢查提示並允許重試。瀏覽器、硬體或網站權限不提供的欄位不會用零值補造。手機重整可用原 QR 重新配對，但進行中的量測緩衝不會跨頁面重整保留，應先結束量測。
 
 無手機可按「試用示範」體驗 22 個模組入口、圖表與 Excel（瀏覽器能力條件在各模組說明）；所有示範資料在 UI、檔名及內容標示，不能當實測。
 

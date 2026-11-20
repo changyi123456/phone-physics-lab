@@ -38,6 +38,18 @@ const copy = {
     "連線失敗，請重試或更換網路。",
     "Connection failed. Retry or try another network.",
   ],
+  signalingUnavailable: [
+    "無法連到配對服務。請檢查網路、VPN 或防火牆，再按重新連線。",
+    "Cannot reach the pairing service. Check your network, VPN or firewall, then reconnect.",
+  ],
+  peerUnavailable: [
+    "找不到這台電腦。請保持電腦實驗頁開啟，並重新掃描目前的 QR Code。",
+    "Desktop not found. Keep the lab page open and scan its current QR code again.",
+  ],
+  transportFailed: [
+    "資料通道無法建立。請讓手機與電腦使用同一個 Wi-Fi 或手機熱點，再重新連線；部分校園與行動網路會阻擋直連。",
+    "Cannot establish the data channel. Connect both devices to the same Wi-Fi or phone hotspot and reconnect. Some school and mobile networks block direct connections.",
+  ],
   disconnected: [
     "連線中斷，手機資料暫存中。",
     "Disconnected. Phone readings are being buffered.",
@@ -108,12 +120,23 @@ const copy = {
     "Phone sensors require HTTPS. Use the hosted website link.",
   ],
   noSensor: [
-    "尚未收到感測資料。請用手機 Safari 或 Chrome 開啟。",
-    "No sensor readings yet. Open this page in Safari or Chrome on a phone.",
+    "未收到有效感測資料。請依下方說明檢查權限，再按「啟用感測器」。",
+    "No usable sensor readings received. Check permissions using the instructions below, then tap Enable sensors again.",
+  ],
+  sensorData: ["感測資料", "Sensor data"],
+  dataReady: ["資料已就緒", "Readings ready"],
+  waitingForReadings: ["等待有效資料", "Waiting for readings"],
+  waitingForSensor: [
+    "手機已連線，但尚未收到此實驗需要的感測資料。請在手機按「啟用感測器」，確認「資料已就緒」。若選擇線性加速度，手機也必須提供線性加速度資料。",
+    "Phone connected, but this experiment's readings are missing. Tap Enable sensors on the phone and wait for Readings ready. Linear acceleration mode also requires linear acceleration readings.",
+  ],
+  motionHelp: [
+    "Android：請用 Chrome 開啟，並在 Chrome「設定 → 網站設定 → 動作感應器」允許存取。iPhone：請用 Safari 開啟並允許動作與方向存取。從 LINE 或其他 App 開啟時，請改用外部瀏覽器。",
+    "Android: open in Chrome and allow Motion sensors in Chrome Settings → Site settings. iPhone: open in Safari and allow motion and orientation access. From LINE or another app, open the link in your external browser.",
   ],
   safariHelp: [
-    "iPhone 請允許動作與方向存取。",
-    "Allow motion and orientation access on iPhone.",
+    "iPhone 請使用 Safari 並允許動作與方向；Android 請使用 Chrome，並允許網站的動作感應器。",
+    "Use Safari and allow motion and orientation on iPhone. On Android, use Chrome and allow Motion sensors in site settings.",
   ],
   keepOpen: [
     "保持此頁面開啟，請勿鎖定螢幕或切換其他應用程式。",
