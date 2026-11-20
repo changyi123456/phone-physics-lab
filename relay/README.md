@@ -14,13 +14,13 @@ Node.js 22 以上。單一服務實例；每組 QR 只允許一台電腦及一�
 
 服務只轉送 JSON 封包，不建立資料庫、不寫量測檔案、不記錄量測封包或配對密鑰。記憶體只保留連線和配對身分；斷線的配對在 10 分鐘後移除。離線期間不保存伺服器歷史，資料補送仍由手機 ReplayBuffer 與電腦 ACK 負責。
 
-正式部署計畫（尚待使用者核准）：
+正式部署設定（已經使用者同意新增與發布）：
 
-- 使用既有 Render 工作區 `simulation`，新增 `phone-physics-relay`。
+- 使用既有 Render 工作區 `simulation` 的 `phone-physics-relay`。
 - 方案 `free`，區域 `singapore`，單一 Node 服務。
 - 儲存庫同網站 `changyi123456/phone-physics-lab`，分支 `main`。
 - Build：`npm ci --prefix relay`；Start：`node relay/server.mjs`。
-- 健康檢查：`/health`。在同一 GitHub repo 的 Actions variable `PHYLAB_RELAY_URL` 設定 `wss://實際服務網址/pair`；既有 workflow 會傳入 `VITE_RELAY_URL` 後建置前端。變數未設定時不啟用中繼。
+- 服務：https://phone-physics-relay.onrender.com；健康檢查：`/health`。在同一 GitHub repo 的 Actions variable `PHYLAB_RELAY_URL` 設定 `wss://實際服務網址/pair`；既有 workflow 會傳入 `VITE_RELAY_URL` 後建置前端。變數未設定時不啟用中繼。
 - 直連成功不使用中繼資料通道；直連 8 秒未完成時才嘗試備援。
 
 Render 免費服務閒置 15 分鐘會休眠，首次喚醒可能約一分鐘。免費服務共用工作區免費時數、建置和流量額度；超額與帳戶計費／停用政策依 Render 帳戶設定，不能把「free」當作保證任何用量皆不計費。不得自動升級付費規格。此方案也不能取代實際教室多組手機驗收。
