@@ -1,0 +1,8 @@
+{
+  "name": "phylab-pairing-relay",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.mjs", "test": "node --test server.test.mjs" },
+  "engines": { "node": ">=22" },
+  "dependencies": { "ws": "8.18.3" }
+}
