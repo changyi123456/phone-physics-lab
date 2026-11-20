@@ -44,6 +44,7 @@ export interface LabSnapshot {
   phase: Phase;
   link: LinkStatus;
   linkIssue: string;
+  linkTransport: "" | "direct" | "relay";
   code: string;
   caps: Capabilities;
   calibration: Calibration | null;
@@ -91,6 +92,7 @@ export class Lab {
     phase: "idle",
     link: "waiting",
     linkIssue: "",
+    linkTransport: "",
     code: "",
     caps: { ...EMPTY_CAPS },
     calibration: null,
@@ -117,7 +119,7 @@ export class Lab {
         this.lastReceived = 0;
         this.patch({ caps: { ...EMPTY_CAPS } });
       }
-      this.patch({ link: s, linkIssue: this.link.issue });
+      this.patch({ link: s, linkIssue: this.link.issue, linkTransport: this.link.transport });
       if (this.recorder && isActive(this.state.phase)) {
         if (s === "disconnected")
           this.recorder.event({

@@ -1,4 +1,5 @@
 import type { Peer, DataConnection } from "peerjs";
+import { RelayConnection, relayURL, roomFromKey } from "./relay";
 // Keep the same browser identity after refreshing or reopening the QR link.
 function deviceIdentity() {
   const key = "physics-device-v1";
@@ -32,11 +33,12 @@ export type LinkStatus =
   | "failed";
 export class Link {
   peer?: Peer;
-  conn?: DataConnection;
+  conn?: DataConnection | RelayConnection;
   code = "";
   status: LinkStatus = "waiting";
   rtt = 0;
   issue = "";
+  transport: "" | "direct" | "relay" = "";
   onStatus?: (s: LinkStatus) => void;
   onMessage?: (p: Wire) => void;
   welcome?: () => Wire;
@@ -49,6 +51,10 @@ export class Link {
   private role: "host" | "phone" = "host";
   private busy = false;
   private retryAt = 0;
+  private hostKey = "";
+  private relay?: RelayConnection;
+  private relayTimer?: ReturnType<typeof setTimeout>;
+  private unbind?: () => void;
   constructor(private loadPeer = () => import("peerjs")) {}
   setStatus(s: LinkStatus, issue = "") {
     this.issue = issue;
@@ -71,11 +77,13 @@ export class Link {
       return this.code;
     this.close();
     this.role = "host";
-    this.code = Array.from(
-      crypto.getRandomValues(new Uint8Array(24)),
-      (v) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[v % 32],
-    ).join("");
     const epoch = this.epoch;
+    this.hostKey = [...crypto.getRandomValues(new Uint8Array(32))]
+      .map(v => v.toString(16).padStart(2, "0")).join("");
+    const code = await roomFromKey(this.hostKey);
+    if (epoch !== this.epoch) return "";
+    this.code = code;
+    this.scheduleRelay(8000);
     const { Peer } = await this.loadPeer();
     if (epoch !== this.epoch) return "";
     this.peer = new Peer(`physics-v1-${this.code}`, peerOptions);
@@ -86,6 +94,10 @@ export class Link {
     });
     this.peer.on("connection", (c) => {
       if (epoch !== this.epoch) return c.close();
+      if (this.conn instanceof RelayConnection && this.conn.open) {
+        c.on("open", () => c.close());
+        return;
+      }
       const m = c.metadata;
       if (
         m?.room !== this.code ||
@@ -118,6 +130,7 @@ export class Link {
       return;
     }
     const epoch = this.epoch;
+    this.scheduleRelay(8000);
     const { Peer } = await this.loadPeer();
     if (epoch !== this.epoch) return;
     this.peer = new Peer(peerOptions);
@@ -172,18 +185,22 @@ export class Link {
       }),
     );
   }
-  private bind(c: DataConnection) {
+  private bind(c: DataConnection | RelayConnection) {
+    this.unbind?.();
     this.conn = c;
     this.lastSeen = Date.now();
-    c.on("open", () => {
+    const opened = () => {
       if (this.conn !== c) return c.close();
       this.busy = false;
       this.lastSeen = Date.now();
+      this.transport = c instanceof RelayConnection ? "relay" : "direct";
+      clearTimeout(this.relayTimer);
+      if (this.transport === "direct") this.relay?.close();
       this.setStatus("connected");
       if (this.role === "host")
         this.send(this.welcome?.() ?? { type: "welcome" });
-    });
-    c.on("data", (data) => {
+    };
+    const received = (data: unknown) => {
       if (this.conn !== c) return;
       this.lastSeen = Date.now();
       if (
@@ -204,16 +221,70 @@ export class Link {
         return;
       }
       this.onMessage?.(p);
-    });
+    };
     const gone = () => {
       if (this.conn !== c) return;
       this.conn = undefined;
       this.busy = false;
       this.retryAt = Date.now() + 2000;
       this.setStatus("disconnected");
+      this.scheduleRelay(2000);
     };
+    c.on("open", opened);
+    c.on("data", received);
     c.on("close", gone);
     c.on("error", gone);
+    this.unbind = () => {
+      c.off("open", opened); c.off("data", received);
+      c.off("close", gone); c.off("error", gone);
+    };
+    if (c.open) opened();
+  }
+  private scheduleRelay(delay: number) {
+    if (!relayURL) return;
+    clearTimeout(this.relayTimer);
+    const epoch = this.epoch;
+    this.relayTimer = setTimeout(() => {
+      if (epoch !== this.epoch || this.conn?.open || this.relay?.alive) return;
+      this.openRelay();
+    }, delay);
+  }
+  private openRelay() {
+    const epoch = this.epoch;
+    const relay = new RelayConnection(relayURL, this.code, this.role, this.device, this.hostKey);
+    this.relay = relay;
+    this.setStatus("connecting", "relayConnecting");
+    relay.on("waiting", () => {
+      if (epoch === this.epoch && !this.conn?.open)
+        this.setStatus("waiting", this.role === "phone" ? "waitingForDesktop" : "");
+    });
+    relay.on("ready", () => {
+      if (epoch !== this.epoch) return relay.close();
+      if (this.role === "host") {
+        if (this.conn?.open && this.conn !== relay) return relay.close();
+        if (this.owner && this.owner !== relay.metadata.device) return relay.close();
+        relay.activate();
+      }
+    });
+    relay.on("open", () => {
+      if (epoch !== this.epoch) return relay.close();
+      if (this.role === "host") this.owner = relay.metadata.device;
+      const previous = this.conn;
+      this.unbind?.();
+      this.conn = undefined;
+      if (previous !== relay) previous?.close();
+      this.bind(relay);
+    });
+    relay.on("error", (issue: string) => {
+      if (epoch === this.epoch && !this.conn?.open)
+        this.setStatus("connecting", issue);
+    });
+    relay.on("close", () => {
+      if (epoch === this.epoch && !this.conn?.open && !relay.alive) {
+        this.setStatus("connecting", "relayConnecting");
+        this.scheduleRelay(5000);
+      }
+    });
   }
   private monitor() {
     this.timer = setInterval(() => {
@@ -229,7 +300,7 @@ export class Link {
         pending.close();
         this.busy = false;
         this.retryAt = Date.now() + 5000;
-        this.setStatus("failed", "transportFailed");
+        this.setStatus(relayURL ? "connecting" : "failed", relayURL ? "relayConnecting" : "transportFailed");
       } else if (this.peer?.disconnected && !this.peer.destroyed && Date.now() > this.retryAt) {
         this.retryAt = Date.now() + 5000;
         try { this.peer.reconnect(); } catch {}
@@ -262,12 +333,18 @@ export class Link {
   close() {
     this.epoch++;
     clearInterval(this.timer);
+    clearTimeout(this.relayTimer);
+    this.unbind?.();
+    this.unbind = undefined;
     const old = this.conn;
     this.conn = undefined;
     old?.close();
+    this.relay?.close();
+    this.relay = undefined;
     this.peer?.destroy();
     this.peer = undefined;
     this.owner = "";
     this.busy = false;
+    this.transport = "";
   }
 }

@@ -42,6 +42,26 @@ const copy = {
     "無法連到配對服務。請檢查網路、VPN 或防火牆，再按重新連線。",
     "Cannot reach the pairing service. Check your network, VPN or firewall, then reconnect.",
   ],
+  relayConnecting: [
+    "直連尚未完成，正在啟動備援連線。首次啟動可能需要約一分鐘，請保持兩邊頁面開啟。",
+    "Direct pairing has not completed. Starting the backup connection; initial startup may take about a minute. Keep both pages open.",
+  ],
+  relayUnavailable: [
+    "備援服務暫時無法連線，正在自動重試。請保持兩邊頁面開啟。",
+    "The backup service is temporarily unavailable. Retrying automatically; keep both pages open.",
+  ],
+  waitingForDesktop: [
+    "正在等待電腦加入備援連線。請保持電腦實驗頁開啟。",
+    "Waiting for the desktop to join the backup connection. Keep the lab page open.",
+  ],
+  pairingBusy: [
+    "這組 QR Code 已配對另一個瀏覽器。請在電腦重新整理實驗頁，再掃描新的 QR Code。",
+    "This QR code is paired with another browser. Reload the desktop lab and scan its new QR code.",
+  ],
+  relayPrivacy: [
+    "備援連線中：資料經中繼伺服器轉送，不在伺服器儲存。",
+    "Backup connection: readings pass through a relay and are not stored on the server.",
+  ],
   peerUnavailable: [
     "找不到這台電腦。請保持電腦實驗頁開啟，並重新掃描目前的 QR Code。",
     "Desktop not found. Keep the lab page open and scan its current QR code again.",

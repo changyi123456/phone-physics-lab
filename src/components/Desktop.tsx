@@ -731,6 +731,7 @@ function Workspace({
               </div>
             </div>
             {s.mode === "phone" && s.linkIssue ? <p className="notice" role="status">{qualityText(s.linkIssue, lang)}</p> : null}
+            {s.mode === "phone" && s.link === "connected" && s.linkTransport === "relay" ? <p className="notice">{tr("relayPrivacy", lang)}</p> : null}
             {s.mode === "phone" ? (
               <>
                 <div className="qr-stage">

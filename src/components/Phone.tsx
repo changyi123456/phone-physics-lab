@@ -24,6 +24,7 @@ import { Preferences, type PreferencesProps } from "./Preferences";
 interface PhoneState {
   link: LinkStatus;
   linkIssue: string;
+  linkTransport: "" | "direct" | "relay";
   dataReady: boolean;
   enabled: boolean;
   requesting: boolean;
@@ -38,6 +39,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
   const [s, set] = useState<PhoneState>({
     link: "connecting",
     linkIssue: "",
+    linkTransport: "",
     dataReady: false,
     enabled: false,
     requesting: false,
@@ -144,7 +146,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
       }));
     };
     link.onStatus = (status) =>
-      set((v) => ({ ...v, link: status, linkIssue: link.issue }));
+      set((v) => ({ ...v, link: status, linkIssue: link.issue, linkTransport: link.transport }));
     link.onMessage = (p: Wire) => {
       if (p.type === "welcome") {
         if (experiments.some((e) => e.id === p.experiment)) {
@@ -363,6 +365,7 @@ export function Phone({ code, ...prefs }: PreferencesProps & { code: string }) {
           <h2>{tr(s.link === "connected" ? "connected" : "unpaired", lang)}</h2>
           {s.link !== "connected" ? <p>{tr(s.link, lang)}</p> : null}
           {s.linkIssue ? <p role="status">{qualityText(s.linkIssue, lang)}</p> : null}
+          {s.link === "connected" && s.linkTransport === "relay" ? <p>{tr("relayPrivacy", lang)}</p> : null}
           <p className="current-experiment">
             {tr("current", lang)}: <strong>{tx(experiment.name, lang)}</strong>
           </p>
